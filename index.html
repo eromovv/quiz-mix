@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quiz Mix</title>
+    <style>
+      :root {
+        --bg: #eef8ff;
+        --bg-strong: #d9efff;
+        --surface: rgba(255, 255, 255, 0.92);
+        --surface-soft: rgba(255, 255, 255, 0.72);
+        --ink: #18344f;
+        --muted: #5f7b98;
+        --line: rgba(96, 152, 203, 0.18);
+        --accent: #2f89f9;
+        --accent-soft: #8fd4ff;
+        --accent-deep: #1d69cc;
+        --shadow: 0 24px 60px rgba(43, 100, 156, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(143, 212, 255, 0.48), transparent 26%),
+          radial-gradient(circle at top right, rgba(47, 137, 249, 0.18), transparent 24%),
+          linear-gradient(180deg, #fafdff, var(--bg) 48%, var(--bg-strong));
+      }
+
+      .page {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+
+      .back-button {
+        visibility: hidden;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 10px 16px;
+        background: var(--surface);
+      }
+
+      .brand {
+        margin: 0;
+        font-size: clamp(2.4rem, 6vw, 4.8rem);
+        line-height: 0.94;
+        color: #10365f;
+        text-shadow: 0 12px 28px rgba(143, 212, 255, 0.28);
+      }
+
+      .hero {
+        border: 1px solid rgba(255, 255, 255, 0.76);
+        border-radius: 28px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(239, 248, 255, 0.92)),
+          var(--surface);
+        box-shadow: var(--shadow);
+        padding: 36px;
+      }
+
+      .hero h2 {
+        margin: 0 0 28px;
+        max-width: 720px;
+        font-size: clamp(1.9rem, 4vw, 3.1rem);
+        line-height: 1.02;
+      }
+
+      .category-list,
+      .stats-row {
+        display: grid;
+        gap: 16px;
+      }
+
+      .category-list {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .card {
+        display: grid;
+        gap: 16px;
+        min-height: 220px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--surface);
+        box-shadow: 0 16px 32px rgba(80, 150, 215, 0.08);
+      }
+
+      .card.music {
+        background: linear-gradient(165deg, rgba(143, 212, 255, 0.3), rgba(255, 255, 255, 0.94));
+      }
+
+      .card.movies {
+        background: linear-gradient(165deg, rgba(88, 162, 255, 0.18), rgba(255, 255, 255, 0.96));
+      }
+
+      .card.facts {
+        background: linear-gradient(165deg, rgba(190, 232, 255, 0.36), rgba(255, 255, 255, 0.96));
+      }
+
+      .card h3,
+      .stat-value {
+        margin: 0;
+      }
+
+      .copy {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: fit-content;
+        min-width: 84px;
+        padding: 11px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.88);
+        color: #205381;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+        color: white;
+        text-decoration: none;
+        box-shadow: 0 14px 28px rgba(29, 105, 204, 0.22);
+      }
+
+      .stats-row {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        margin-top: 28px;
+      }
+
+      .stat {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--surface-soft);
+      }
+
+      .stat-value {
+        display: block;
+        font-size: 2rem;
+        margin-bottom: 8px;
+      }
+
+      @media (max-width: 720px) {
+        .page {
+          width: min(100% - 20px, 1120px);
+          padding-top: 20px;
+        }
+
+        .hero {
+          padding: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
