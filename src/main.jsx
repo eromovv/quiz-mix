@@ -7,9 +7,13 @@ import "./styles.css";
 
 document.documentElement.dataset.uiTheme = loadTheme();
 
+// Совпадает с base в Vite: "/" локально, "/quiz-mix/" при сборке под GitHub Pages
+const baseUrl = import.meta.env.BASE_URL;
+const routerBasename = baseUrl === "/" ? undefined : baseUrl.replace(/\/$/, "");
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename}>
       <App />
     </BrowserRouter>
   </React.StrictMode>
