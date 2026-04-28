@@ -10,8 +10,8 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf-8")
 const repoName = typeof pkg.name === "string" ? pkg.name : "quiz-mix";
 
 /**
- * GitHub Pages (project site): user.github.io/repo/
- * В dev: base = "/". В production build: /(имя пакета)/
+ * GitHub Pages (project site): user.github.io/repo/ → base `/${repoName}/`.
+ * Vercel и прочий хостинг с корневым URL → base "/".
  */
 function copyIndexTo404() {
   const from = resolve(__dirname, "dist/index.html");
@@ -22,7 +22,8 @@ function copyIndexTo404() {
 }
 
 export default defineConfig(({ command }) => {
-  const base = command === "build" ? `/${repoName}/` : "/";
+  const isVercel = process.env.VERCEL === "1";
+  const base = command === "build" && !isVercel ? `/${repoName}/` : "/";
 
   return {
     base,
@@ -30,7 +31,7 @@ export default defineConfig(({ command }) => {
       react(),
       {
         name: "github-pages-spa-404",
-        closeBundle: command === "build" ? copyIndexTo404 : () => {},
+        closeBundle: command === "build" && !isVercel ? copyIndexTo404 : () => {},
       },
     ],
   };
