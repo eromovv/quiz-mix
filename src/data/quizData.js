@@ -1,5 +1,4 @@
-import { getCustomItems } from "./customItems.js";
-import { makePoster, makeToneTrack } from "./itemFactories.js";
+import { getBaseOverrideRows, getCustomItems, getCustomRawRow, rowToItem } from "./customItems.js";
 
 export const STORAGE_KEY = "quiz_progress";
 
@@ -21,30 +20,78 @@ export const CATEGORIES = {
   },
 };
 
+function getMovieVideoUrl(id) {
+  return String(import.meta.env[`VITE_MOVIE_VIDEO_${id}`] || "").trim();
+}
+
+function makeMovieMedia(id) {
+  return {
+    type: "video",
+    src: getMovieVideoUrl(id),
+  };
+}
+
+function getMusicAudioUrl(id) {
+  return String(import.meta.env[`VITE_MUSIC_AUDIO_${id}`] || "").trim();
+}
+
+function makeMusicMedia(id) {
+  return {
+    type: "audio",
+    src: getMusicAudioUrl(id),
+  };
+}
+
 export const musicItems = [
-  { id: 1, media: makeToneTrack([261.63, 329.63, 392], 0.45), answer: "Трезвучие до мажора" },
-  { id: 2, media: makeToneTrack([220, 246.94, 293.66, 329.63], 0.42), answer: "Восходящий контур ля минора" },
-  { id: 3, media: makeToneTrack([392, 392, 349.23, 293.66], 0.5), answer: "Нисходящий рисунок G–F–D" },
-  { id: 4, media: makeToneTrack([293.66, 349.23, 440, 349.23], 0.46), answer: "Арпеджио D–F–A–F" },
-  { id: 5, media: makeToneTrack([329.63, 392, 523.25], 0.62), answer: "Светлая каденция E–G–C" },
-  { id: 6, media: makeToneTrack([174.61, 220, 261.63, 220], 0.48), answer: "Повторяющийся ход F–A–C–A" },
-  { id: 7, media: makeToneTrack([440, 493.88, 587.33], 0.56), answer: "Подъём A–B–D" },
-  { id: 8, media: makeToneTrack([311.13, 369.99, 466.16], 0.54), answer: "Кластер Es–F♯–B" },
-  { id: 9, media: makeToneTrack([196, 246.94, 293.66, 392], 0.43), answer: "Сочетание G–B–D–G" },
-  { id: 10, media: makeToneTrack([523.25, 493.88, 440, 392], 0.5), answer: "Нисходящая линия C–B–A–G" },
+  { id: 1, media: makeMusicMedia(1), answer: "Трезвучие до мажора" },
+  { id: 2, media: makeMusicMedia(2), answer: "Восходящий контур ля минора" },
+  { id: 3, media: makeMusicMedia(3), answer: "Нисходящий рисунок G-F-D" },
+  { id: 4, media: makeMusicMedia(4), answer: "Арпеджио D-F-A-F" },
+  { id: 5, media: makeMusicMedia(5), answer: "Светлая каденция E-G-C" },
+  { id: 6, media: makeMusicMedia(6), answer: "Повторяющийся ход F-A-C-A" },
+  { id: 7, media: makeMusicMedia(7), answer: "Подъём A-B-D" },
+  { id: 8, media: makeMusicMedia(8), answer: "Кластер Es-F#-B" },
+  { id: 9, media: makeMusicMedia(9), answer: "Сочетание G-B-D-G" },
+  { id: 10, media: makeMusicMedia(10), answer: "Нисходящая линия C-B-A-G" },
+];
+
+const musicEditableRows = [
+  { id: 1, audioUrl: getMusicAudioUrl(1), answer: "Трезвучие до мажора" },
+  { id: 2, audioUrl: getMusicAudioUrl(2), answer: "Восходящий контур ля минора" },
+  { id: 3, audioUrl: getMusicAudioUrl(3), answer: "Нисходящий рисунок G-F-D" },
+  { id: 4, audioUrl: getMusicAudioUrl(4), answer: "Арпеджио D-F-A-F" },
+  { id: 5, audioUrl: getMusicAudioUrl(5), answer: "Светлая каденция E-G-C" },
+  { id: 6, audioUrl: getMusicAudioUrl(6), answer: "Повторяющийся ход F-A-C-A" },
+  { id: 7, audioUrl: getMusicAudioUrl(7), answer: "Подъём A-B-D" },
+  { id: 8, audioUrl: getMusicAudioUrl(8), answer: "Кластер Es-F#-B" },
+  { id: 9, audioUrl: getMusicAudioUrl(9), answer: "Сочетание G-B-D-G" },
+  { id: 10, audioUrl: getMusicAudioUrl(10), answer: "Нисходящая линия C-B-A-G" },
 ];
 
 export const moviesItems = [
-  { id: 1, media: makePoster("Интерстеллар", "#0c3b78", "Горизонт кукурузного поля и одинокий космический корабль"), answer: "Интерстеллар" },
-  { id: 2, media: makePoster("Назад в будущее", "#8f4d16", "Машина времени, искры и 88 миль в час"), answer: "Назад в будущее" },
-  { id: 3, media: makePoster("Титаник", "#12364a", "Океанский лайнер в сумерках, холодный сине-голубой свет"), answer: "Титаник" },
-  { id: 4, media: makePoster("Король Лев", "#bb7a1c", "Тёплый свет саванны и высокая скала"), answer: "Король Лев" },
-  { id: 5, media: makePoster("Начало", "#31445f", "Город складывается сам на себя"), answer: "Начало" },
-  { id: 6, media: makePoster("Матрица", "#18381f", "Зелёный цифровой дождь и чёрные силуэты"), answer: "Матрица" },
-  { id: 7, media: makePoster("Джокер", "#6a1f28", "Одинокий персонаж в свете уличных фонарей"), answer: "Джокер" },
-  { id: 8, media: makePoster("Аватар", "#16506b", "Сияющий лес и парящие горы"), answer: "Аватар" },
-  { id: 9, media: makePoster("Дюна", "#9b6731", "Пыльная дымка, дюны и силуэт всадника вдали"), answer: "Дюна" },
-  { id: 10, media: makePoster("Гарри Поттер", "#49311c", "Башни замка, ночное небо и вспышка палочки"), answer: "Гарри Поттер" },
+  { id: 1, media: makeMovieMedia(1), answer: "Интерстеллар" },
+  { id: 2, media: makeMovieMedia(2), answer: "Назад в будущее" },
+  { id: 3, media: makeMovieMedia(3), answer: "Титаник" },
+  { id: 4, media: makeMovieMedia(4), answer: "Король Лев" },
+  { id: 5, media: makeMovieMedia(5), answer: "Начало" },
+  { id: 6, media: makeMovieMedia(6), answer: "Матрица" },
+  { id: 7, media: makeMovieMedia(7), answer: "Джокер" },
+  { id: 8, media: makeMovieMedia(8), answer: "Аватар" },
+  { id: 9, media: makeMovieMedia(9), answer: "Дюна" },
+  { id: 10, media: makeMovieMedia(10), answer: "Гарри Поттер" },
+];
+
+const moviesEditableRows = [
+  { id: 1, videoUrl: getMovieVideoUrl(1), answer: "Интерстеллар" },
+  { id: 2, videoUrl: getMovieVideoUrl(2), answer: "Назад в будущее" },
+  { id: 3, videoUrl: getMovieVideoUrl(3), answer: "Титаник" },
+  { id: 4, videoUrl: getMovieVideoUrl(4), answer: "Король Лев" },
+  { id: 5, videoUrl: getMovieVideoUrl(5), answer: "Начало" },
+  { id: 6, videoUrl: getMovieVideoUrl(6), answer: "Матрица" },
+  { id: 7, videoUrl: getMovieVideoUrl(7), answer: "Джокер" },
+  { id: 8, videoUrl: getMovieVideoUrl(8), answer: "Аватар" },
+  { id: 9, videoUrl: getMovieVideoUrl(9), answer: "Дюна" },
+  { id: 10, videoUrl: getMovieVideoUrl(10), answer: "Гарри Поттер" },
 ];
 
 export const factsItems = [
@@ -60,11 +107,61 @@ export const factsItems = [
   { id: 10, question: "Сутки на Меркурии длиннее, чем год на Меркурии.", answer: true, description: "Меркурий вращается настолько медленно, что одни солнечные сутки дольше оборота по орбите." },
 ];
 
+/** Количество встроенных карточек по категориям (пользовательские добавляются после них). */
+export const BASE_ITEM_COUNTS = {
+  music: musicItems.length,
+  movies: moviesItems.length,
+  facts: factsItems.length,
+};
+
+/**
+ * Индекс в общем списке getItems(category) относится к пользовательской карточке.
+ * @param {"music"|"movies"|"facts"} category
+ * @param {number} index
+ */
+export function isCustomItemIndex(category, index) {
+  return index >= BASE_ITEM_COUNTS[category];
+}
+
+function getBaseItems(category) {
+  return category === "music" ? musicItems : category === "movies" ? moviesItems : factsItems;
+}
+
+function getBaseEditableRows(category) {
+  if (category === "music") {
+    return musicEditableRows;
+  }
+  if (category === "movies") {
+    return moviesEditableRows;
+  }
+  return factsItems.map(({ id, question, answer, description }) => ({ id, question, answer, description }));
+}
+
+/**
+ * @param {"music"|"movies"|"facts"} category
+ * @param {number} index
+ */
+export function getEditableItemRow(category, index) {
+  if (isCustomItemIndex(category, index)) {
+    const customIndex = index - BASE_ITEM_COUNTS[category];
+    const customItem = getCustomItems(category)[customIndex];
+    return customItem ? getCustomRawRow(category, customItem.id) : null;
+  }
+
+  const baseRow = getBaseEditableRows(category)[index] ?? null;
+  if (!baseRow) {
+    return null;
+  }
+  const override = getBaseOverrideRows(category)[baseRow.id];
+  return override ?? baseRow;
+}
+
 /**
  * @param {"music"|"movies"|"facts"} category
  */
 export function getItems(category) {
-  const base = category === "music" ? musicItems : category === "movies" ? moviesItems : factsItems;
+  const overrides = getBaseOverrideRows(category);
+  const base = getBaseItems(category).map((item) => (overrides[item.id] ? rowToItem(category, overrides[item.id]) : item));
   return [...base, ...getCustomItems(category)];
 }
 

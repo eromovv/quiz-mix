@@ -1,63 +1,191 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import { CATEGORIES } from "../data/quizData";
-import { addCustomCard, parseFreqs } from "../data/customItems";
+import { addCustomCard, getCustomRawRow, updateBaseCard, updateCustomCard } from "../data/customItems";
+
+const BLOB_UPLOAD_ENDPOINT = "/api/blob-upload";
+
+const defaultMusic = {
+  musicAudioUrl: "",
+  musicAnswer: "",
+};
+
+const defaultMovies = {
+  mvVideoUrl: "",
+  mvAnswer: "",
+};
+
+const defaultFacts = {
+  factQuestion: "",
+  factDesc: "",
+  factTrue: "true",
+};
 
 /**
  * @param {object} props
  * @param {"music"|"movies"|"facts"} props.category
+ * @param {number | null} props.editCardId
+ * @param {"base"|"custom"|null} props.editSource
+ * @param {object | null} props.initialRow
  * @param {() => void} props.onClose
  * @param {() => void} props.onSuccess
  */
-export function AddCardModal({ category, onClose, onSuccess }) {
+export function AddCardModal({ category, editCardId, editSource, initialRow, onClose, onSuccess }) {
   const title = CATEGORIES[category].title;
+  const isEdit = editCardId != null;
   const [error, setError] = useState(null);
 
-  const [musicAnswer, setMusicAnswer] = useState("");
-  const [musicFreqs, setMusicFreqs] = useState("262, 330, 392");
-  const [musicNoteDur, setMusicNoteDur] = useState(0.45);
+  const [musicAudioUrl, setMusicAudioUrl] = useState(defaultMusic.musicAudioUrl);
+  const [musicAnswer, setMusicAnswer] = useState(defaultMusic.musicAnswer);
+  const [musicFile, setMusicFile] = useState(null);
+  const [musicUploading, setMusicUploading] = useState(false);
 
-  const [mvTitle, setMvTitle] = useState("");
-  const [mvBg, setMvBg] = useState("#0c3b78");
-  const [mvClue, setMvClue] = useState("");
-  const [mvAnswer, setMvAnswer] = useState("");
+  const [mvVideoUrl, setMvVideoUrl] = useState(defaultMovies.mvVideoUrl);
+  const [mvAnswer, setMvAnswer] = useState(defaultMovies.mvAnswer);
+  const [mvFile, setMvFile] = useState(null);
+  const [mvUploading, setMvUploading] = useState(false);
 
-  const [factQuestion, setFactQuestion] = useState("");
-  const [factDesc, setFactDesc] = useState("");
-  const [factTrue, setFactTrue] = useState("true");
+  const [factQuestion, setFactQuestion] = useState(defaultFacts.factQuestion);
+  const [factDesc, setFactDesc] = useState(defaultFacts.factDesc);
+  const [factTrue, setFactTrue] = useState(defaultFacts.factTrue);
+
+  useEffect(() => {
+    setError(null);
+
+    function applyDefaults() {
+      setMusicAudioUrl(defaultMusic.musicAudioUrl);
+      setMusicAnswer(defaultMusic.musicAnswer);
+      setMusicFile(null);
+      setMvVideoUrl(defaultMovies.mvVideoUrl);
+      setMvAnswer(defaultMovies.mvAnswer);
+      setMvFile(null);
+      setFactQuestion(defaultFacts.factQuestion);
+      setFactDesc(defaultFacts.factDesc);
+      setFactTrue(defaultFacts.factTrue);
+    }
+
+    if (editCardId == null) {
+      applyDefaults();
+      return;
+    }
+
+    const row = initialRow ?? getCustomRawRow(category, editCardId);
+    if (!row) {
+      applyDefaults();
+      return;
+    }
+
+    if (category === "music") {
+      setMusicAudioUrl(row.audioUrl || "");
+      setMusicAnswer(row.answer);
+      setMusicFile(null);
+    } else if (category === "movies") {
+      setMvVideoUrl(row.videoUrl || "");
+      setMvAnswer(row.answer);
+      setMvFile(null);
+    } else {
+      setFactQuestion(row.question);
+      setFactDesc(row.description);
+      setFactTrue(row.answer ? "true" : "false");
+    }
+  }, [editCardId, category, initialRow]);
 
   function handleSubmit(e) {
     e.preventDefault();
     setError(null);
     if (category === "music") {
-      const freqs = parseFreqs(musicFreqs);
-      if (!musicAnswer.trim()) {
-        setError("Введите ответ");
+      if (!musicAudioUrl.trim() || !musicAnswer.trim()) {
+        setError("Загрузите аудиофайл и укажите правильный ответ.");
         return;
       }
-      if (freqs.length < 1) {
-        setError("Укажите хотя бы одну частоту нот (числа через запятую).");
-        return;
+      const payload = { audioUrl: musicAudioUrl, answer: musicAnswer };
+      if (isEdit && editCardId != null) {
+        if (editSource === "base") {
+          updateBaseCard("music", editCardId, payload);
+        } else {
+          updateCustomCard("music", editCardId, payload);
+        }
+      } else {
+        addCustomCard("music", payload);
       }
-      const noteDur = Number(musicNoteDur);
-      if (!Number.isFinite(noteDur) || noteDur <= 0) {
-        setError("Длительность ноты должна быть больше 0.");
-        return;
-      }
-      addCustomCard("music", { freqs, noteDuration: noteDur, answer: musicAnswer });
     } else if (category === "movies") {
-      if (!mvTitle.trim() || !mvClue.trim() || !mvAnswer.trim()) {
-        setError("Заполните заголовок на афише, подсказку и правильный ответ.");
+      if (!mvVideoUrl.trim() || !mvAnswer.trim()) {
+        setError("Загрузите видеофайл и укажите правильный ответ.");
         return;
       }
-      addCustomCard("movies", { title: mvTitle, background: mvBg, clue: mvClue, answer: mvAnswer });
+      const payload = { videoUrl: mvVideoUrl, answer: mvAnswer };
+      if (isEdit && editCardId != null) {
+        if (editSource === "base") {
+          updateBaseCard("movies", editCardId, payload);
+        } else {
+          updateCustomCard("movies", editCardId, payload);
+        }
+      } else {
+        addCustomCard("movies", payload);
+      }
     } else {
       if (!factQuestion.trim() || !factDesc.trim()) {
         setError("Заполните утверждение и пояснение.");
         return;
       }
-      addCustomCard("facts", { question: factQuestion, description: factDesc, answer: factTrue === "true" });
+      const payload = {
+        question: factQuestion,
+        description: factDesc,
+        answer: factTrue === "true",
+      };
+      if (isEdit && editCardId != null) {
+        if (editSource === "base") {
+          updateBaseCard("facts", editCardId, payload);
+        } else {
+          updateCustomCard("facts", editCardId, payload);
+        }
+      } else {
+        addCustomCard("facts", payload);
+      }
     }
     onSuccess();
+  }
+
+  async function handleMovieFileUpload() {
+    if (!mvFile) {
+      setError("Выберите видеофайл для загрузки.");
+      return;
+    }
+
+    setError(null);
+    setMvUploading(true);
+    try {
+      const blob = await upload(`quiz-mix/movies/${mvFile.name}`, mvFile, {
+        access: "public",
+        handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
+      });
+      setMvVideoUrl(blob.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось загрузить файл в Vercel Blob.");
+    } finally {
+      setMvUploading(false);
+    }
+  }
+
+  async function handleMusicFileUpload() {
+    if (!musicFile) {
+      setError("Выберите аудиофайл для загрузки.");
+      return;
+    }
+
+    setError(null);
+    setMusicUploading(true);
+    try {
+      const blob = await upload(`quiz-mix/music/${musicFile.name}`, musicFile, {
+        access: "public",
+        handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
+      });
+      setMusicAudioUrl(blob.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось загрузить файл в Vercel Blob.");
+    } finally {
+      setMusicUploading(false);
+    }
   }
 
   return (
@@ -71,7 +199,9 @@ export function AddCardModal({ category, onClose, onSuccess }) {
     >
       <div className="modal-card add-card-form-card" role="dialog" aria-modal="true" aria-labelledby="add-card-title">
         <div className="modal-header add-card-form-header">
-          <h2 id="add-card-title">Новая карточка: {title}</h2>
+          <h2 id="add-card-title">
+            {isEdit ? "Изменить карточку" : "Новая карточка"}: {title}
+          </h2>
           <button className="control-button secondary" type="button" onClick={onClose}>
             Закрыть
           </button>
@@ -81,21 +211,15 @@ export function AddCardModal({ category, onClose, onSuccess }) {
           {category === "music" ? (
             <>
               <label className="form-field">
-                <span>Частоты нот (Гц, через запятую)</span>
-                <input value={musicFreqs} onChange={(e) => setMusicFreqs(e.target.value)} type="text" required />
+                <span>Загрузить музыку в Vercel Blob</span>
+                <input accept="audio/*" onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)} type="file" />
               </label>
-              <label className="form-field">
-                <span>Длительность одной ноты (сек.)</span>
-                <input
-                  value={musicNoteDur}
-                  onChange={(e) => setMusicNoteDur(Number(e.target.value))}
-                  type="number"
-                  min="0.05"
-                  max="2"
-                  step="0.01"
-                  required
-                />
-              </label>
+              <div className="upload-row">
+                <button className="control-button secondary" disabled={!musicFile || musicUploading} onClick={handleMusicFileUpload} type="button">
+                  {musicUploading ? "Загрузка..." : "Загрузить файл"}
+                </button>
+                {musicFile ? <span className="upload-file-name">{musicFile.name}</span> : null}
+              </div>
               <label className="form-field">
                 <span>Правильный ответ</span>
                 <input value={musicAnswer} onChange={(e) => setMusicAnswer(e.target.value)} type="text" required />
@@ -105,17 +229,19 @@ export function AddCardModal({ category, onClose, onSuccess }) {
           {category === "movies" ? (
             <>
               <label className="form-field">
-                <span>Заголовок на «афише» (как в ответе)</span>
-                <input value={mvTitle} onChange={(e) => setMvTitle(e.target.value)} type="text" required />
+                <span>Загрузить видео в Vercel Blob</span>
+                <input
+                  accept="video/mp4,video/webm,video/quicktime,video/x-matroska"
+                  onChange={(e) => setMvFile(e.target.files?.[0] ?? null)}
+                  type="file"
+                />
               </label>
-              <label className="form-field">
-                <span>Цвет фона (HEX, например #0c3b78)</span>
-                <input value={mvBg} onChange={(e) => setMvBg(e.target.value)} type="text" required />
-              </label>
-              <label className="form-field">
-                <span>Текст подсказки (сюжет, без спойлеров)</span>
-                <textarea value={mvClue} onChange={(e) => setMvClue(e.target.value)} rows={3} required />
-              </label>
+              <div className="upload-row">
+                <button className="control-button secondary" disabled={!mvFile || mvUploading} onClick={handleMovieFileUpload} type="button">
+                  {mvUploading ? "Загрузка..." : "Загрузить файл"}
+                </button>
+                {mvFile ? <span className="upload-file-name">{mvFile.name}</span> : null}
+              </div>
               <label className="form-field">
                 <span>Правильное название фильма</span>
                 <input value={mvAnswer} onChange={(e) => setMvAnswer(e.target.value)} type="text" required />
@@ -146,7 +272,7 @@ export function AddCardModal({ category, onClose, onSuccess }) {
               Отмена
             </button>
             <button className="control-button primary" type="submit">
-              Добавить
+              {isEdit ? "Сохранить" : "Добавить"}
             </button>
           </div>
         </form>
