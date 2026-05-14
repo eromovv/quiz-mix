@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { CATEGORIES } from "../data/quizData";
 import { addCustomCard, getCustomRawRow, updateBaseCard, updateCustomCard } from "../data/customItems";
+import { createTranslator, getCategoryMeta } from "../lib/i18n";
 
 const BLOB_UPLOAD_ENDPOINT = "/api/blob-upload";
 
@@ -21,17 +21,39 @@ const defaultFacts = {
   factTrue: "true",
 };
 
+function getFileExtension(fileName) {
+  const match = fileName.toLowerCase().match(/\.([a-z0-9]{1,12})$/);
+  return match ? `.${match[1]}` : "";
+}
+
+function makeBlobPath(folder, file) {
+  const extension = getFileExtension(file.name);
+  const rawName = extension ? file.name.slice(0, -extension.length) : file.name;
+  const safeName =
+    rawName
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+      .slice(0, 80) || "upload";
+
+  return `quiz-mix/${folder}/${Date.now()}-${safeName}${extension}`;
+}
+
 /**
  * @param {object} props
  * @param {"music"|"movies"|"facts"} props.category
  * @param {number | null} props.editCardId
  * @param {"base"|"custom"|null} props.editSource
  * @param {object | null} props.initialRow
+ * @param {"ru"|"en"} props.language
  * @param {() => void} props.onClose
  * @param {() => void} props.onSuccess
  */
-export function AddCardModal({ category, editCardId, editSource, initialRow, onClose, onSuccess }) {
-  const title = CATEGORIES[category].title;
+export function AddCardModal({ category, editCardId, editSource, initialRow, language, onClose, onSuccess }) {
+  const t = createTranslator(language);
+  const title = getCategoryMeta(language, category).title;
   const isEdit = editCardId != null;
   const [error, setError] = useState(null);
 
@@ -95,7 +117,7 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
     setError(null);
     if (category === "music") {
       if (!musicAudioUrl.trim() || !musicAnswer.trim()) {
-        setError("Загрузите аудиофайл и укажите правильный ответ.");
+        setError(t("missingMusicFields"));
         return;
       }
       const payload = { audioUrl: musicAudioUrl, answer: musicAnswer };
@@ -110,7 +132,7 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
       }
     } else if (category === "movies") {
       if (!mvVideoUrl.trim() || !mvAnswer.trim()) {
-        setError("Загрузите видеофайл и укажите правильный ответ.");
+        setError(t("missingVideoFields"));
         return;
       }
       const payload = { videoUrl: mvVideoUrl, answer: mvAnswer };
@@ -125,7 +147,7 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
       }
     } else {
       if (!factQuestion.trim() || !factDesc.trim()) {
-        setError("Заполните утверждение и пояснение.");
+        setError(t("missingFactFields"));
         return;
       }
       const payload = {
@@ -148,20 +170,21 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
 
   async function handleMovieFileUpload() {
     if (!mvFile) {
-      setError("Выберите видеофайл для загрузки.");
+      setError(t("chooseVideoFile"));
       return;
     }
 
     setError(null);
     setMvUploading(true);
     try {
-      const blob = await upload(`quiz-mix/movies/${mvFile.name}`, mvFile, {
-        access: "public",
+      const blob = await upload(makeBlobPath("movies", mvFile), mvFile, {
+        access: "private",
+        contentType: mvFile.type || undefined,
         handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
       });
       setMvVideoUrl(blob.url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить файл в Vercel Blob.");
+      setError(err instanceof Error ? err.message : t("uploadFailed"));
     } finally {
       setMvUploading(false);
     }
@@ -169,20 +192,21 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
 
   async function handleMusicFileUpload() {
     if (!musicFile) {
-      setError("Выберите аудиофайл для загрузки.");
+      setError(t("chooseAudioFile"));
       return;
     }
 
     setError(null);
     setMusicUploading(true);
     try {
-      const blob = await upload(`quiz-mix/music/${musicFile.name}`, musicFile, {
-        access: "public",
+      const blob = await upload(makeBlobPath("music", musicFile), musicFile, {
+        access: "private",
+        contentType: musicFile.type || undefined,
         handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
       });
       setMusicAudioUrl(blob.url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить файл в Vercel Blob.");
+      setError(err instanceof Error ? err.message : t("uploadFailed"));
     } finally {
       setMusicUploading(false);
     }
@@ -200,10 +224,10 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
       <div className="modal-card add-card-form-card" role="dialog" aria-modal="true" aria-labelledby="add-card-title">
         <div className="modal-header add-card-form-header">
           <h2 id="add-card-title">
-            {isEdit ? "Изменить карточку" : "Новая карточка"}: {title}
+            {isEdit ? t("editCardTitle") : t("newCard")}: {title}
           </h2>
           <button className="control-button secondary" type="button" onClick={onClose}>
-            Закрыть
+            {t("close")}
           </button>
         </div>
         {error ? <p className="form-error">{error}</p> : null}
@@ -211,17 +235,17 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
           {category === "music" ? (
             <>
               <label className="form-field">
-                <span>Загрузить музыку в Vercel Blob</span>
+                <span>{t("musicUploadLabel")}</span>
                 <input accept="audio/*" onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)} type="file" />
               </label>
               <div className="upload-row">
                 <button className="control-button secondary" disabled={!musicFile || musicUploading} onClick={handleMusicFileUpload} type="button">
-                  {musicUploading ? "Загрузка..." : "Загрузить файл"}
+                  {musicUploading ? t("loading") : t("uploadFile")}
                 </button>
                 {musicFile ? <span className="upload-file-name">{musicFile.name}</span> : null}
               </div>
               <label className="form-field">
-                <span>Правильный ответ</span>
+                <span>{t("correctAnswer")}</span>
                 <input value={musicAnswer} onChange={(e) => setMusicAnswer(e.target.value)} type="text" required />
               </label>
             </>
@@ -229,7 +253,7 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
           {category === "movies" ? (
             <>
               <label className="form-field">
-                <span>Загрузить видео в Vercel Blob</span>
+                <span>{t("uploadVideoLabel")}</span>
                 <input
                   accept="video/mp4,video/webm,video/quicktime,video/x-matroska"
                   onChange={(e) => setMvFile(e.target.files?.[0] ?? null)}
@@ -238,12 +262,12 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
               </label>
               <div className="upload-row">
                 <button className="control-button secondary" disabled={!mvFile || mvUploading} onClick={handleMovieFileUpload} type="button">
-                  {mvUploading ? "Загрузка..." : "Загрузить файл"}
+                  {mvUploading ? t("loading") : t("uploadFile")}
                 </button>
                 {mvFile ? <span className="upload-file-name">{mvFile.name}</span> : null}
               </div>
               <label className="form-field">
-                <span>Правильное название фильма</span>
+                <span>{t("movieCorrectTitle")}</span>
                 <input value={mvAnswer} onChange={(e) => setMvAnswer(e.target.value)} type="text" required />
               </label>
             </>
@@ -251,28 +275,28 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, onC
           {category === "facts" ? (
             <>
               <label className="form-field">
-                <span>Утверждение</span>
+                <span>{t("factQuestionLabel")}</span>
                 <textarea value={factQuestion} onChange={(e) => setFactQuestion(e.target.value)} rows={3} required />
               </label>
               <label className="form-field">
-                <span>Правда или ложь</span>
+                <span>{t("trueOrFalse")}</span>
                 <select value={factTrue} onChange={(e) => setFactTrue(e.target.value)}>
-                  <option value="true">Верно</option>
-                  <option value="false">Неверно</option>
+                  <option value="true">{t("true")}</option>
+                  <option value="false">{t("false")}</option>
                 </select>
               </label>
               <label className="form-field">
-                <span>Пояснение после ответа</span>
+                <span>{t("factExplanationLabel")}</span>
                 <textarea value={factDesc} onChange={(e) => setFactDesc(e.target.value)} rows={4} required />
               </label>
             </>
           ) : null}
           <div className="modal-actions add-card-form-actions">
             <button className="control-button secondary" type="button" onClick={onClose}>
-              Отмена
+              {t("cancel")}
             </button>
             <button className="control-button primary" type="submit">
-              {isEdit ? "Сохранить" : "Добавить"}
+              {isEdit ? t("save") : t("add")}
             </button>
           </div>
         </form>

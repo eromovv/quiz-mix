@@ -1,12 +1,4 @@
-import { handleUpload } from "@vercel/blob/client";
-
-const ALLOWED_CONTENT_TYPES = [
-  "audio/*",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "video/x-matroska",
-];
+import { handleBlobUpload } from "./blob-upload-core.js";
 
 export default async function handler(request, response) {
   if (request.method !== "POST") {
@@ -15,15 +7,7 @@ export default async function handler(request, response) {
   }
 
   try {
-    const jsonResponse = await handleUpload({
-      body: request.body,
-      request,
-      onBeforeGenerateToken: async () => ({
-        allowedContentTypes: ALLOWED_CONTENT_TYPES,
-        addRandomSuffix: true,
-      }),
-      onUploadCompleted: async () => {},
-    });
+    const jsonResponse = await handleBlobUpload(request, request.body);
 
     return response.status(200).json(jsonResponse);
   } catch (error) {

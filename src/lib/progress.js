@@ -5,6 +5,10 @@ export { PROGRESS_SESSION_MS };
 
 const BUNDLE_VERSION = 1;
 
+export function getProgressStorageKey(roomId) {
+  return roomId ? `${STORAGE_KEY}_room_${roomId}` : STORAGE_KEY;
+}
+
 /**
  * Подгоняет длины массивов прогресса к текущему числу вопросов (в т.ч. пользовательских).
  * @param {Record<string, boolean[]>|null|undefined} progress
@@ -74,18 +78,18 @@ function parseBundle(parsed) {
  * @param {Record<string, boolean[]>} data
  * @param {number} startedAt
  */
-function persistBundle(data, startedAt) {
+function persistBundle(data, startedAt, storageKey = STORAGE_KEY) {
   const payload = { v: BUNDLE_VERSION, startedAt, data };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  window.localStorage.setItem(storageKey, JSON.stringify(payload));
 }
 
-export function loadProgress() {
+export function loadProgress(storageKey = STORAGE_KEY) {
   const fallback = createDefaultProgress();
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) {
-      persistBundle(fallback, Date.now());
+      persistBundle(fallback, Date.now(), storageKey);
       return fallback;
     }
 
@@ -96,7 +100,7 @@ export function loadProgress() {
       const aligned = alignProgressToItems(pb.data);
       const nextStr = JSON.stringify({ v: BUNDLE_VERSION, startedAt: pb.startedAt, data: aligned });
       if (nextStr !== raw) {
-        window.localStorage.setItem(STORAGE_KEY, nextStr);
+        window.localStorage.setItem(storageKey, nextStr);
       }
       return aligned;
     }
@@ -104,27 +108,27 @@ export function loadProgress() {
     if (pb.kind === "legacy") {
       const startedAt = Date.now();
       const aligned = alignProgressToItems(pb.data);
-      persistBundle(aligned, startedAt);
+      persistBundle(aligned, startedAt, storageKey);
       return aligned;
     }
 
     if (pb.kind === "expired") {
-      persistBundle(fallback, Date.now());
+      persistBundle(fallback, Date.now(), storageKey);
       return fallback;
     }
 
-    persistBundle(fallback, Date.now());
+    persistBundle(fallback, Date.now(), storageKey);
     return fallback;
   } catch {
-    persistBundle(fallback, Date.now());
+    persistBundle(fallback, Date.now(), storageKey);
     return fallback;
   }
 }
 
-export function saveProgress(progress) {
+export function saveProgress(progress, storageKey = STORAGE_KEY) {
   try {
     const aligned = alignProgressToItems(progress);
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     let startedAt = Date.now();
 
     if (raw) {
@@ -134,7 +138,7 @@ export function saveProgress(progress) {
       }
     }
 
-    persistBundle(aligned, startedAt);
+    persistBundle(aligned, startedAt, storageKey);
   } catch {
     /* ignore quota / privacy mode */
   }

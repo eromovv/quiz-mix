@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/room/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/music",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/movies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/facts",
+      "destination": "/index.html"
+    }
+  ]
+}
