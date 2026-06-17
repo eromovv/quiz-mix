@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AddCardModal } from "./components/AddCardModal";
-import { exportLocalCustomCardsStore, removeCustomCard, setActiveCustomCardsStore } from "./data/customItems";
+import { AddCategoryModal } from "./components/AddCategoryModal";
+import { LoginModal } from "./components/LoginModal";
+import {
+  addRoomCategory,
+  createEmptyCardsStore,
+  exportActiveCardsStore,
+  exportLocalCustomCardsStore,
+  getRoomCategories,
+  removeCustomCard,
+  setActiveCustomCardsStore,
+} from "./data/customItems";
 import {
   CATEGORIES,
+  CATEGORY_KEYS,
   getEditableItemRow,
   getItemCount,
   getItems,
@@ -15,11 +26,35 @@ import {
 import { APP_MODE, loadAppMode, saveAppMode } from "./lib/appMode";
 import { createTranslator, getCategoryMeta, LANGUAGES, loadLanguage, saveLanguage } from "./lib/i18n";
 import { alignProgressToItems, countCompleted, getProgressStorageKey, loadProgress, saveProgress } from "./lib/progress";
-import { createRoom, fetchRoom, getOwnedRooms, getRoomOwnerToken, saveRoomOwnerToken, updateRoom } from "./lib/rooms";
+import {
+  captureAccessTokenFromUrl,
+  createRoom,
+  fetchRoom,
+  formatTokenExpiry,
+  getOwnedRooms,
+  getRoomAccessToken,
+  getRoomMeta,
+  getRoomOwnerToken,
+  makeRoomShareUrl,
+  rememberRoomCredentials,
+  renewRoomAccessToken,
+  resolveRoomToken,
+  RoomRequestError,
+  saveRoomAccessToken,
+  updateRoom,
+} from "./lib/rooms";
 import { loadTheme, saveTheme } from "./lib/theme";
+import {
+  establishUserSession,
+  getUserSessionLabel,
+  isUserSessionValid,
+  LAST_ROOM_ID_KEY,
+  logoutUser,
+  resolveInitialUserSession,
+  subscribeUserSession,
+} from "./lib/userAuth";
 
 const MEDIA_TIMER_SETTINGS_KEY = "quiz_media_timer_settings";
-const LAST_ROOM_ID_KEY = "quiz_last_room_id";
 const QUIZ_FLOW_MODE = {
   chaotic: "chaotic",
   sequential: "sequential",
@@ -90,12 +125,11 @@ function normalizeQuizFlowThreshold(value) {
   return Math.min(99, Math.max(1, parsed));
 }
 
-function isCategoryUnlocked(progress, category, quizFlowMode, threshold) {
+function isCategoryUnlocked(progress, category, quizFlowMode, threshold, categoryKeys = CATEGORY_KEYS) {
   if (quizFlowMode !== QUIZ_FLOW_MODE.sequential) {
     return true;
   }
 
-  const categoryKeys = Object.keys(CATEGORIES);
   const categoryIndex = categoryKeys.indexOf(category);
   if (categoryIndex <= 0) {
     return true;
@@ -119,6 +153,7 @@ function saveDisplaySettings(settings) {
 
 export default function App() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [progress, setProgress] = useState(() => loadProgress());
   const [uiTheme, setUiTheme] = useState(() => loadTheme());
   const [language, setLanguage] = useState(() => loadLanguage());
@@ -126,7 +161,12 @@ export default function App() {
   const [mediaTimers, setMediaTimers] = useState(() => loadMediaTimerSettings());
   const [displaySettings, setDisplaySettings] = useState(() => loadDisplaySettings());
   const [cardRevision, setCardRevision] = useState(0);
+  const [userSession, setUserSession] = useState(() => resolveInitialUserSession());
+  const [loginOpen, setLoginOpen] = useState(false);
   const isRoomPath = location.pathname.startsWith("/room/");
+  const isAuthenticated = isUserSessionValid(userSession);
+
+  useEffect(() => subscribeUserSession(setUserSession), []);
 
   useEffect(() => {
     saveProgress(progress);
@@ -166,8 +206,16 @@ export default function App() {
       <AppHeader
         appMode={appMode}
         displaySettings={displaySettings}
+        isAuthenticated={isAuthenticated}
         isRoomMode={isRoomPath}
         language={language}
+        onLogin={() => setLoginOpen(true)}
+        onLogout={() => {
+          logoutUser();
+          if (isRoomPath) {
+            navigate("/");
+          }
+        }}
         onSetLanguage={setLanguage}
         onSetAppMode={setAppMode}
         mediaTimers={mediaTimers}
@@ -175,7 +223,19 @@ export default function App() {
         onSetDisplaySettings={setDisplaySettings}
         onToggleTheme={() => setUiTheme((t) => (t === "light" ? "dark" : "light"))}
         uiTheme={uiTheme}
+        userSession={userSession}
       />
+      {loginOpen ? (
+        <LoginModal
+          language={language}
+          onClose={() => setLoginOpen(false)}
+          onSuccess={({ session }) => {
+            setLoginOpen(false);
+            setUserSession(session);
+            navigate(`/room/${session.roomId}`);
+          }}
+        />
+      ) : null}
       {!isRoomPath && appMode === APP_MODE.dev ? <RoomManager cardRevision={cardRevision} language={language} /> : null}
       <main>
         <Routes>
@@ -238,13 +298,8 @@ export default function App() {
   );
 }
 
-function makeRoomUrl(roomId) {
-  if (typeof window === "undefined") {
-    return `/room/${roomId}`;
-  }
-
-  const base = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
-  return `${window.location.origin}${base}/room/${roomId}`;
+function makeRoomUrl(roomId, accessToken) {
+  return makeRoomShareUrl(roomId, accessToken || getRoomAccessToken(roomId));
 }
 
 function RoomManager({ cardRevision, language }) {
@@ -263,6 +318,9 @@ function RoomManager({ cardRevision, language }) {
   const [isOpen, setIsOpen] = useState(true);
   const roomIds = Object.keys(ownedRooms);
   const currentRoomUrl = currentRoomId ? makeRoomUrl(currentRoomId) : "";
+  const currentRoomMeta = currentRoomId ? getRoomMeta(currentRoomId) : {};
+  const accessExpiryLabel = formatTokenExpiry(currentRoomMeta.accessTokenExpiresAt, language);
+  const ownerExpiryLabel = formatTokenExpiry(currentRoomMeta.ownerTokenExpiresAt, language);
 
   useEffect(() => {
     if (!status) {
@@ -276,8 +334,8 @@ function RoomManager({ cardRevision, language }) {
     return () => window.clearTimeout(timeoutId);
   }, [status]);
 
-  function rememberRoom(roomId, ownerToken) {
-    saveRoomOwnerToken(roomId, ownerToken);
+  function rememberRoom(roomId, payload) {
+    rememberRoomCredentials(roomId, payload);
     const nextRooms = getOwnedRooms();
     setOwnedRooms(nextRooms);
     setCurrentRoomId(roomId);
@@ -289,8 +347,13 @@ function RoomManager({ cardRevision, language }) {
     setStatus("");
     setIsSaving(true);
     try {
-      const result = await createRoom(exportLocalCustomCardsStore());
-      rememberRoom(result.room.id, result.ownerToken);
+      const result = await createRoom(createEmptyCardsStore());
+      rememberRoom(result.room.id, {
+        ownerToken: result.ownerToken,
+        accessToken: result.accessToken,
+        room: result.room,
+      });
+      establishUserSession(result.room.id, "owner", result.room);
       setStatus(t("roomCreated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("roomCreateFailed"));
@@ -308,10 +371,37 @@ function RoomManager({ cardRevision, language }) {
     setStatus("");
     setIsSaving(true);
     try {
-      await updateRoom(currentRoomId, getRoomOwnerToken(currentRoomId), exportLocalCustomCardsStore());
+      const result = await updateRoom(currentRoomId, getRoomOwnerToken(currentRoomId), exportLocalCustomCardsStore());
+      rememberRoom(currentRoomId, {
+        accessToken: result.accessToken,
+        room: result.room,
+      });
       setStatus(t("roomUpdated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("roomUpdateFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRenewAccessLink() {
+    if (!currentRoomId) {
+      return;
+    }
+
+    setError("");
+    setStatus("");
+    setIsSaving(true);
+    try {
+      const result = await renewRoomAccessToken(currentRoomId, getRoomOwnerToken(currentRoomId));
+      rememberRoom(currentRoomId, {
+        ownerToken: getRoomOwnerToken(currentRoomId),
+        accessToken: result.accessToken,
+        room: result.room,
+      });
+      setStatus(t("roomAccessRenewed"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("roomAccessRenewFailed"));
     } finally {
       setIsSaving(false);
     }
@@ -372,9 +462,14 @@ function RoomManager({ cardRevision, language }) {
             ) : null}
             <div className="room-button-group">
               {currentRoomId ? (
-                <button className="control-button secondary" disabled={isSaving} onClick={handleUpdateRoom} tabIndex={isOpen ? 0 : -1} type="button">
-                  {t("roomUpdateButton")}
-                </button>
+                <>
+                  <button className="control-button secondary" disabled={isSaving} onClick={handleUpdateRoom} tabIndex={isOpen ? 0 : -1} type="button">
+                    {t("roomUpdateButton")}
+                  </button>
+                  <button className="control-button secondary" disabled={isSaving} onClick={handleRenewAccessLink} tabIndex={isOpen ? 0 : -1} type="button">
+                    {t("roomRenewAccessButton")}
+                  </button>
+                </>
               ) : null}
               <button className="control-button primary" disabled={isSaving} onClick={handleCreateRoom} tabIndex={isOpen ? 0 : -1} type="button">
                 {t("createRoom")}
@@ -382,11 +477,16 @@ function RoomManager({ cardRevision, language }) {
             </div>
           </div>
           {currentRoomUrl ? (
-            <div className="room-link-row">
-              <input readOnly tabIndex={isOpen ? 0 : -1} value={currentRoomUrl} />
-              <button className="control-button secondary" onClick={handleCopyLink} tabIndex={isOpen ? 0 : -1} type="button">
-                {t("copy")}
-              </button>
+            <div className="room-link-block">
+              <p className="room-link-hint">{t("roomShareHint")}</p>
+              <div className="room-link-row">
+                <input readOnly tabIndex={isOpen ? 0 : -1} value={currentRoomUrl} />
+                <button className="control-button secondary" onClick={handleCopyLink} tabIndex={isOpen ? 0 : -1} type="button">
+                  {t("copy")}
+                </button>
+              </div>
+              {accessExpiryLabel ? <p className="room-meta">{t("roomAccessExpiry", { date: accessExpiryLabel })}</p> : null}
+              {ownerExpiryLabel ? <p className="room-meta">{t("roomOwnerAccessExpiry", { date: ownerExpiryLabel })}</p> : null}
             </div>
           ) : null}
           {status ? <p className="room-status">{status}</p> : null}
@@ -397,38 +497,111 @@ function RoomManager({ cardRevision, language }) {
   );
 }
 
+function RoomAccessGate({ language, onSubmit, error, initialToken = "" }) {
+  const t = useMemo(() => createTranslator(language), [language]);
+  const [token, setToken] = useState(initialToken);
+
+  return (
+    <section className="room-access-gate">
+      <h2>{t("roomAccessTitle")}</h2>
+      <p>{t("roomAccessRequired")}</p>
+      <form
+        className="room-access-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(token.trim());
+        }}
+      >
+        <label className="room-access-label">
+          <span>{t("roomAccessTokenLabel")}</span>
+          <input
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder={t("roomAccessTokenPlaceholder")}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        <button className="control-button primary" type="submit">
+          {t("roomAccessSubmit")}
+        </button>
+      </form>
+      {error ? <p className="room-error">{error}</p> : null}
+    </section>
+  );
+}
+
 function RoomApp({ mediaTimers, displaySettings, language }) {
   const { roomId } = useParams();
   const location = useLocation();
   const t = useMemo(() => createTranslator(language), [language]);
   const [room, setRoom] = useState(null);
+  const [roomRole, setRoomRole] = useState("");
   const [progress, setProgress] = useState(null);
   const [cardRevision, setCardRevision] = useState(0);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
+  const [accessToken, setAccessToken] = useState(() => captureAccessTokenFromUrl(roomId) || resolveRoomToken(roomId));
   const progressKey = getProgressStorageKey(roomId);
 
   useEffect(() => {
+    const urlToken = captureAccessTokenFromUrl(roomId);
+    if (urlToken) {
+      setAccessToken(urlToken);
+    }
+  }, [roomId, location.search]);
+
+  useEffect(() => {
     let cancelled = false;
+
+    if (!accessToken) {
+      setStatus("auth");
+      setError("");
+      setRoom(null);
+      setProgress(null);
+      setActiveCustomCardsStore(null);
+      return undefined;
+    }
+
     setStatus("loading");
     setError("");
     setRoom(null);
     setProgress(null);
     setActiveCustomCardsStore(null);
 
-    fetchRoom(roomId)
-      .then((loadedRoom) => {
+    fetchRoom(roomId, accessToken)
+      .then((payload) => {
         if (cancelled) {
           return;
         }
-        setActiveCustomCardsStore(loadedRoom.cards);
-        setRoom(loadedRoom);
+        if (payload.accessToken) {
+          saveRoomAccessToken(roomId, payload.accessToken);
+        }
+        rememberRoomCredentials(roomId, {
+          ownerToken: payload.role === "owner" ? accessToken : "",
+          accessToken: payload.accessToken || getRoomAccessToken(roomId),
+          room: payload.room,
+        });
+        establishUserSession(roomId, payload.role === "owner" ? "owner" : "guest", payload.room);
+        setActiveCustomCardsStore(payload.room.cards);
+        setRoom(payload.room);
+        setRoomRole(payload.role || "");
         setProgress(loadProgress(progressKey));
         setCardRevision((value) => value + 1);
         setStatus("ready");
       })
       .catch((err) => {
         if (cancelled) {
+          return;
+        }
+        if (err instanceof RoomRequestError && err.code === "TOKEN_EXPIRED") {
+          setStatus("auth");
+          setError(err.message || t("roomAccessExpired"));
+          return;
+        }
+        if (err instanceof RoomRequestError && (err.statusCode === 401 || err.statusCode === 403)) {
+          setStatus("auth");
+          setError(err.message || t("roomAccessRequired"));
           return;
         }
         setStatus("error");
@@ -439,13 +612,30 @@ function RoomApp({ mediaTimers, displaySettings, language }) {
       cancelled = true;
       setActiveCustomCardsStore(null);
     };
-  }, [progressKey, roomId]);
+  }, [accessToken, progressKey, roomId, t]);
 
   useEffect(() => {
     if (status === "ready" && progress) {
       saveProgress(progress, progressKey);
     }
   }, [progress, progressKey, status]);
+
+  if (status === "auth") {
+    return (
+      <RoomAccessGate
+        language={language}
+        error={error}
+        initialToken={accessToken}
+        onSubmit={(token) => {
+          setError("");
+          if (token) {
+            saveRoomAccessToken(roomId, token);
+          }
+          setAccessToken(token || resolveRoomToken(roomId));
+        }}
+      />
+    );
+  }
 
   if (status === "loading") {
     return <p className="empty-copy">{t("roomLoading")}</p>;
@@ -468,6 +658,38 @@ function RoomApp({ mediaTimers, displaySettings, language }) {
   const roomPath = location.pathname.startsWith(roomBasePath) ? location.pathname.slice(roomBasePath.length) || "/" : "/";
   const activeCategory = roomPath.replace(/^\/+/, "").split("/")[0];
   const isCategoryRoute = Object.prototype.hasOwnProperty.call(CATEGORIES, activeCategory);
+  const roomCategories = getRoomCategories();
+  const canEditRoom = roomRole === "owner" && Boolean(getRoomOwnerToken(roomId));
+  const accessExpiryLabel = formatTokenExpiry(room.accessTokenExpiresAt, language);
+
+  async function handleAddCategory(category) {
+    addRoomCategory(category);
+    const ownerToken = getRoomOwnerToken(roomId);
+    if (ownerToken) {
+      try {
+        const result = await updateRoom(roomId, ownerToken, exportActiveCardsStore());
+        rememberRoomCredentials(roomId, {
+          accessToken: result.accessToken,
+          room: result.room,
+        });
+        setActiveCustomCardsStore(result.room.cards);
+        setRoom(result.room);
+      } catch (err) {
+        if (err instanceof RoomRequestError && err.code === "TOKEN_EXPIRED") {
+          setError(err.message || t("roomOwnerTokenExpired"));
+        } else {
+          setError(err instanceof Error ? err.message : t("roomUpdateFailed"));
+        }
+        return;
+      }
+    }
+    setProgress((current) => alignProgressToItems(current));
+    setCardRevision((value) => value + 1);
+  }
+
+  if (isCategoryRoute && !roomCategories.includes(activeCategory)) {
+    return <Navigate replace to={roomBasePath} />;
+  }
 
   return (
     <>
@@ -476,13 +698,17 @@ function RoomApp({ mediaTimers, displaySettings, language }) {
           <p className="settings-title">{t("room")}</p>
           <h2>{room.id}</h2>
         </div>
-        <p>{t("roomProgressNote")}</p>
+        <div className="room-banner-copy">
+          <p>{canEditRoom ? t("roomProgressNote") : t("roomOnlyPreview")}</p>
+          {accessExpiryLabel && !canEditRoom ? <p className="room-meta">{t("roomAccessExpiry", { date: accessExpiryLabel })}</p> : null}
+        </div>
       </section>
       {isCategoryRoute ? (
         <QuizPage
-          appMode={APP_MODE.preview}
+          appMode={canEditRoom ? APP_MODE.dev : APP_MODE.preview}
           cardRevision={cardRevision}
           category={activeCategory}
+          categoryKeys={roomCategories}
           language={language}
           mediaTimers={mediaTimers}
           onCustomCardsChanged={() => setCardRevision((value) => value + 1)}
@@ -492,13 +718,37 @@ function RoomApp({ mediaTimers, displaySettings, language }) {
           setProgress={setProgress}
         />
       ) : (
-        <HomePage cardRevision={cardRevision} displaySettings={displaySettings} language={language} progress={progress} routePrefix={`/room/${roomId}`} />
+        <RoomHomePage
+          canEdit={canEditRoom}
+          cardRevision={cardRevision}
+          displaySettings={displaySettings}
+          language={language}
+          onAddCategory={handleAddCategory}
+          progress={progress}
+          routePrefix={roomBasePath}
+        />
       )}
     </>
   );
 }
 
-function AppHeader({ appMode, displaySettings, isRoomMode, language, mediaTimers, onSetAppMode, onSetDisplaySettings, onSetLanguage, onSetMediaTimers, onToggleTheme, uiTheme }) {
+function AppHeader({
+  appMode,
+  displaySettings,
+  isAuthenticated,
+  isRoomMode,
+  language,
+  mediaTimers,
+  onLogin,
+  onLogout,
+  onSetAppMode,
+  onSetDisplaySettings,
+  onSetLanguage,
+  onSetMediaTimers,
+  onToggleTheme,
+  uiTheme,
+  userSession,
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useMemo(() => createTranslator(language), [language]);
@@ -509,6 +759,7 @@ function AppHeader({ appMode, displaySettings, isRoomMode, language, mediaTimers
   const isHome = location.pathname === "/" || Boolean(roomRootMatch);
   const isDark = uiTheme === "dark";
   const themeLabel = isDark ? t("lightTheme") : t("darkTheme");
+  const sessionLabel = getUserSessionLabel(userSession, t);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -559,6 +810,20 @@ function AppHeader({ appMode, displaySettings, isRoomMode, language, mediaTimers
         <h1>Quiz Mix</h1>
       </div>
       <div className="topbar-right topbar-controls">
+        {isAuthenticated ? (
+          <>
+            <span className="auth-session-badge" title={sessionLabel}>
+              {sessionLabel}
+            </span>
+            <button className="control-button secondary auth-button" type="button" onClick={onLogout}>
+              {t("authLogoutButton")}
+            </button>
+          </>
+        ) : (
+          <button className="control-button primary auth-button" type="button" onClick={onLogin}>
+            {t("authLoginButton")}
+          </button>
+        )}
         <div className="settings-menu" ref={settingsMenuRef}>
           <button
             className="icon-toggle"
@@ -683,6 +948,97 @@ function AppHeader({ appMode, displaySettings, isRoomMode, language, mediaTimers
   );
 }
 
+function RoomHomePage({ canEdit, cardRevision, displaySettings, language, onAddCategory, progress, routePrefix }) {
+  const t = useMemo(() => createTranslator(language), [language]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const roomCategories = useMemo(() => getRoomCategories(), [cardRevision]);
+  const availableCategories = CATEGORY_KEYS.filter((key) => !roomCategories.includes(key));
+  const rounds = getRoundCount();
+  const totalQuestions = getTotalQuestionCount();
+
+  async function handleSelectCategory(category) {
+    setPickerOpen(false);
+    await onAddCategory(category);
+  }
+
+  return (
+    <section className="hero room-home" data-card-revision={cardRevision}>
+      {displaySettings.hideRoundSummary || roomCategories.length === 0 ? null : (
+        <div className="hero-copy">
+          <h2>{t("roundSummary", { rounds, totalQuestions })}</h2>
+        </div>
+      )}
+      {roomCategories.length === 0 && !canEdit ? (
+        <p className="empty-copy">{t("roomEmptyGuest")}</p>
+      ) : (
+        <div className="tile-grid room-category-grid">
+          {roomCategories.map((key) => {
+            const categoryMeta = getCategoryMeta(language, key);
+            const cap = getItemCount(key);
+            const done = cap > 0 && countCompleted(progress, key) === cap;
+            const isLocked = !isCategoryUnlocked(
+              progress,
+              key,
+              displaySettings.quizFlowMode,
+              displaySettings.quizFlowThreshold,
+              roomCategories,
+            );
+            return (
+              <NavLink
+                aria-disabled={isLocked ? "true" : undefined}
+                className={`tile room-category-tile ${isLocked ? "is-locked" : ""} ${done ? "completed" : ""}`}
+                data-theme={key}
+                key={key}
+                onClick={(event) => {
+                  if (isLocked) {
+                    event.preventDefault();
+                  }
+                }}
+                to={`${routePrefix}${CATEGORIES[key].route}`}
+              >
+                <span className="room-category-tile-title">{categoryMeta.title}</span>
+                {cap > 0 ? (
+                  <span className="room-category-tile-progress">
+                    {countCompleted(progress, key)}/{cap}
+                  </span>
+                ) : null}
+              </NavLink>
+            );
+          })}
+          {canEdit && availableCategories.length > 0 ? (
+            <button
+              className="tile tile-add"
+              onClick={() => setPickerOpen(true)}
+              title={t("addQuestCategory")}
+              type="button"
+            >
+              +
+            </button>
+          ) : null}
+        </div>
+      )}
+      {roomCategories.length > 0 ? (
+        <div className="stats-row">
+          {roomCategories.map((key) => (
+            <div className="stat-box" key={key}>
+              <span className="stat-value">{countCompleted(progress, key)}</span>
+              <p className="progress-copy">{t("cardsCompleted", { title: getCategoryMeta(language, key).title })}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {pickerOpen ? (
+        <AddCategoryModal
+          availableCategories={availableCategories}
+          language={language}
+          onClose={() => setPickerOpen(false)}
+          onSelect={handleSelectCategory}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function HomePage({ progress, cardRevision, displaySettings, language, routePrefix = "" }) {
   const t = useMemo(() => createTranslator(language), [language]);
   const rounds = getRoundCount();
@@ -740,14 +1096,26 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
   );
 }
 
-function QuizPage({ appMode, category, cardRevision, language, mediaTimers, onCustomCardsChanged, progress, quizFlowMode, quizFlowThreshold, setProgress }) {
+function QuizPage({
+  appMode,
+  category,
+  cardRevision,
+  categoryKeys = CATEGORY_KEYS,
+  language,
+  mediaTimers,
+  onCustomCardsChanged,
+  progress,
+  quizFlowMode,
+  quizFlowThreshold,
+  setProgress,
+}) {
   const t = useMemo(() => createTranslator(language), [language]);
   const items = useMemo(() => getItems(category), [category, cardRevision]);
   const info = getCategoryMeta(language, category);
   const completedCount = countCompleted(progress, category);
   const isSequentialFlow = quizFlowMode === QUIZ_FLOW_MODE.sequential;
   const isBelowThreshold = isSequentialFlow && items.length < quizFlowThreshold;
-  const isLockedCategory = !isCategoryUnlocked(progress, category, quizFlowMode, quizFlowThreshold);
+  const isLockedCategory = !isCategoryUnlocked(progress, category, quizFlowMode, quizFlowThreshold, categoryKeys);
   const [activeIndex, setActiveIndex] = useState(null);
   const [cardEditorOpen, setCardEditorOpen] = useState(false);
   const [editCardId, setEditCardId] = useState(null);

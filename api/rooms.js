@@ -14,6 +14,9 @@ export default async function handler(request, response) {
     }
     return response.status(result.statusCode).json(result.body);
   } catch (error) {
-    return response.status(getStatusCode(error)).json({ error: error instanceof Error ? error.message : "Room request failed" });
+    return response.status(getStatusCode(error)).json({
+      error: error instanceof Error ? error.message : "Room request failed",
+      code: error?.code,
+    });
   }
 }

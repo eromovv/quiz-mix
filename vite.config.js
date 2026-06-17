@@ -152,7 +152,10 @@ function roomsDevMiddleware() {
           res.end(JSON.stringify(result.body));
         } catch (error) {
           res.statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : "Room request failed" }));
+          res.end(JSON.stringify({
+            error: error instanceof Error ? error.message : "Room request failed",
+            code: error?.code,
+          }));
         }
       });
     },

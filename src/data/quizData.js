@@ -1,4 +1,11 @@
-import { getBaseOverrideRows, getCustomItems, getCustomRawRow, rowToItem } from "./customItems.js";
+import {
+  getBaseOverrideRows,
+  getCustomItems,
+  getCustomRawRow,
+  getRoomCategories,
+  isRoomCardsContext,
+  rowToItem,
+} from "./customItems.js";
 
 export const STORAGE_KEY = "quiz_progress";
 
@@ -120,6 +127,9 @@ export const BASE_ITEM_COUNTS = {
  * @param {number} index
  */
 export function isCustomItemIndex(category, index) {
+  if (isRoomCardsContext()) {
+    return index >= 0;
+  }
   return index >= BASE_ITEM_COUNTS[category];
 }
 
@@ -142,6 +152,11 @@ function getBaseEditableRows(category) {
  * @param {number} index
  */
 export function getEditableItemRow(category, index) {
+  if (isRoomCardsContext()) {
+    const customItem = getCustomItems(category)[index];
+    return customItem ? getCustomRawRow(category, customItem.id) : null;
+  }
+
   if (isCustomItemIndex(category, index)) {
     const customIndex = index - BASE_ITEM_COUNTS[category];
     const customItem = getCustomItems(category)[customIndex];
@@ -160,6 +175,10 @@ export function getEditableItemRow(category, index) {
  * @param {"music"|"movies"|"facts"} category
  */
 export function getItems(category) {
+  if (isRoomCardsContext()) {
+    return getCustomItems(category);
+  }
+
   const overrides = getBaseOverrideRows(category);
   const base = getBaseItems(category).map((item) => (overrides[item.id] ? rowToItem(category, overrides[item.id]) : item));
   return [...base, ...getCustomItems(category)];
@@ -168,16 +187,23 @@ export function getItems(category) {
 /** Ключи тем в порядке отображения (как в объекте CATEGORIES). */
 export const CATEGORY_KEYS = Object.keys(CATEGORIES);
 
+export function getVisibleCategoryKeys() {
+  if (isRoomCardsContext()) {
+    return getRoomCategories();
+  }
+  return CATEGORY_KEYS;
+}
+
 export function getItemCount(category) {
   return getItems(category).length;
 }
 
 export function getRoundCount() {
-  return CATEGORY_KEYS.length;
+  return getVisibleCategoryKeys().length;
 }
 
 export function getTotalQuestionCount() {
-  return CATEGORY_KEYS.reduce((sum, key) => sum + getItemCount(key), 0);
+  return getVisibleCategoryKeys().reduce((sum, key) => sum + getItemCount(key), 0);
 }
 
 /** Секунды ожидания в раунде «Музыка» до разблокировки ответа. */
