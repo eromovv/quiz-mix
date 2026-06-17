@@ -6,7 +6,7 @@ function getStatusCode(error) {
 
 export default async function handler(request, response) {
   try {
-    const result = await handleRoomsRequest(request.method, request.query || {}, request.body || {});
+    const result = await handleRoomsRequest(request.method, request.query || {}, request.body || {}, request);
     if (result.headers) {
       for (const [key, value] of Object.entries(result.headers)) {
         response.setHeader(key, value);
@@ -14,6 +14,9 @@ export default async function handler(request, response) {
     }
     return response.status(result.statusCode).json(result.body);
   } catch (error) {
-    return response.status(getStatusCode(error)).json({ error: error instanceof Error ? error.message : "Room request failed" });
+    return response.status(getStatusCode(error)).json({
+      error: error instanceof Error ? error.message : "Room request failed",
+      code: error?.code,
+    });
   }
 }

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { runAuthRequest } from "./api/auth-core.js";
 import { getBlobMedia } from "./api/blob-media-core.js";
 import { handleBlobUpload } from "./api/blob-upload-core.js";
 import { handleRoomsRequest } from "./api/rooms-core.js";
@@ -44,6 +45,47 @@ function readJsonBody(req) {
   });
 }
 
+function applyDevHeaders(res, headers) {
+  if (!headers) {
+    return;
+  }
+  for (const [key, value] of Object.entries(headers)) {
+    res.setHeader(key, value);
+  }
+}
+
+function authDevMiddleware() {
+  return {
+    name: "auth-dev-middleware",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = new URL(req.url || "/", "http://localhost");
+        if (url.pathname !== "/api/auth") {
+          next();
+          return;
+        }
+
+        res.setHeader("Content-Type", "application/json");
+
+        try {
+          const query = Object.fromEntries(url.searchParams.entries());
+          const body = req.method === "GET" ? {} : await readJsonBody(req);
+          const result = await runAuthRequest(req.method, query, body, req);
+          applyDevHeaders(res, result.headers);
+          res.statusCode = result.statusCode;
+          res.end(JSON.stringify(result.body));
+        } catch (error) {
+          res.statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
+          res.end(JSON.stringify({
+            error: error instanceof Error ? error.message : "Auth request failed",
+            code: error?.code,
+          }));
+        }
+      });
+    },
+  };
+}
+
 function blobUploadDevMiddleware() {
   return {
     name: "blob-upload-dev-middleware",
@@ -70,8 +112,11 @@ function blobUploadDevMiddleware() {
           res.statusCode = 200;
           res.end(JSON.stringify(jsonResponse));
         } catch (error) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : "Upload failed" }));
+          res.statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
+          res.end(JSON.stringify({
+            error: error instanceof Error ? error.message : "Upload failed",
+            code: error?.code,
+          }));
         }
       });
     },
@@ -142,7 +187,7 @@ function roomsDevMiddleware() {
         try {
           const query = Object.fromEntries(url.searchParams.entries());
           const body = req.method === "GET" ? {} : await readJsonBody(req);
-          const result = await handleRoomsRequest(req.method, query, body);
+          const result = await handleRoomsRequest(req.method, query, body, req);
           if (result.headers) {
             for (const [key, value] of Object.entries(result.headers)) {
               res.setHeader(key, value);
@@ -152,7 +197,10 @@ function roomsDevMiddleware() {
           res.end(JSON.stringify(result.body));
         } catch (error) {
           res.statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : "Room request failed" }));
+          res.end(JSON.stringify({
+            error: error instanceof Error ? error.message : "Room request failed",
+            code: error?.code,
+          }));
         }
       });
     },
@@ -164,6 +212,9 @@ export default defineConfig(({ command, mode }) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN && env.BLOB_READ_WRITE_TOKEN) {
     process.env.BLOB_READ_WRITE_TOKEN = env.BLOB_READ_WRITE_TOKEN;
   }
+  if (!process.env.AUTH_SESSION_SECRET && env.AUTH_SESSION_SECRET) {
+    process.env.AUTH_SESSION_SECRET = env.AUTH_SESSION_SECRET;
+  }
   const isVercel = process.env.VERCEL === "1";
   const base = command === "build" && !isVercel ? `/${repoName}/` : "/";
 
@@ -171,6 +222,7 @@ export default defineConfig(({ command, mode }) => {
     base,
     plugins: [
       react(),
+      authDevMiddleware(),
       blobUploadDevMiddleware(),
       blobMediaDevMiddleware(),
       roomsDevMiddleware(),

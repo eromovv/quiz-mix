@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import { addCustomCard, getCustomRawRow, updateBaseCard, updateCustomCard } from "../data/customItems";
 import { createTranslator, getCategoryMeta } from "../lib/i18n";
+import { getRoomOwnerToken } from "../lib/rooms.js";
 
 const BLOB_UPLOAD_ENDPOINT = "/api/blob-upload";
 
@@ -48,10 +49,11 @@ function makeBlobPath(folder, file) {
  * @param {"base"|"custom"|null} props.editSource
  * @param {object | null} props.initialRow
  * @param {"ru"|"en"} props.language
+ * @param {string} [props.roomId]
  * @param {() => void} props.onClose
  * @param {() => void} props.onSuccess
  */
-export function AddCardModal({ category, editCardId, editSource, initialRow, language, onClose, onSuccess }) {
+export function AddCardModal({ category, editCardId, editSource, initialRow, language, roomId = "", onClose, onSuccess }) {
   const t = createTranslator(language);
   const title = getCategoryMeta(language, category).title;
   const isEdit = editCardId != null;
@@ -168,6 +170,22 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, lan
     onSuccess();
   }
 
+  function buildUploadOptions() {
+    const options = {
+      access: "private",
+      handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
+    };
+
+    if (roomId) {
+      options.clientPayload = JSON.stringify({
+        roomId,
+        ownerToken: getRoomOwnerToken(roomId),
+      });
+    }
+
+    return options;
+  }
+
   async function handleMovieFileUpload() {
     if (!mvFile) {
       setError(t("chooseVideoFile"));
@@ -178,9 +196,8 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, lan
     setMvUploading(true);
     try {
       const blob = await upload(makeBlobPath("movies", mvFile), mvFile, {
-        access: "private",
+        ...buildUploadOptions(),
         contentType: mvFile.type || undefined,
-        handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
       });
       setMvVideoUrl(blob.url);
     } catch (err) {
@@ -200,9 +217,8 @@ export function AddCardModal({ category, editCardId, editSource, initialRow, lan
     setMusicUploading(true);
     try {
       const blob = await upload(makeBlobPath("music", musicFile), musicFile, {
-        access: "private",
+        ...buildUploadOptions(),
         contentType: musicFile.type || undefined,
-        handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
       });
       setMusicAudioUrl(blob.url);
     } catch (err) {

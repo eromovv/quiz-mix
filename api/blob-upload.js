@@ -11,6 +11,10 @@ export default async function handler(request, response) {
 
     return response.status(200).json(jsonResponse);
   } catch (error) {
-    return response.status(400).json({ error: error instanceof Error ? error.message : "Upload failed" });
+    const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
+    return response.status(statusCode).json({
+      error: error instanceof Error ? error.message : "Upload failed",
+      code: error?.code,
+    });
   }
 }

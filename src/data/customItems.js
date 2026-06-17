@@ -1,11 +1,14 @@
 import { makeToneTrack } from "./itemFactories.js";
 
 export const CUSTOM_CARDS_KEY = "quiz_custom_cards";
+const ROOM_CATEGORY_ORDER = ["music", "movies", "facts"];
+const ROOM_CATEGORY_KEYS = new Set(ROOM_CATEGORY_ORDER);
 
 let activeCustomCardsStore = null;
 
 function emptyStore() {
   return {
+    categories: [],
     music: [],
     movies: [],
     facts: [],
@@ -13,12 +16,29 @@ function emptyStore() {
   };
 }
 
+function inferLegacyCategories(data) {
+  const inferred = ROOM_CATEGORY_ORDER.filter((key) => {
+    const list = data[key];
+    if (Array.isArray(list) && list.length > 0) {
+      return true;
+    }
+    const overrides = data.overrides?.[key];
+    return overrides && typeof overrides === "object" && Object.keys(overrides).length > 0;
+  });
+  return inferred;
+}
+
 export function normalizeCustomCardsStore(data) {
   if (!data || typeof data !== "object") {
     return emptyStore();
   }
 
+  const categories = Array.isArray(data.categories)
+    ? data.categories.filter((key) => ROOM_CATEGORY_KEYS.has(key))
+    : inferLegacyCategories(data);
+
   return {
+    categories,
     music: Array.isArray(data.music) ? data.music : [],
     movies: Array.isArray(data.movies) ? data.movies : [],
     facts: Array.isArray(data.facts) ? data.facts : [],
@@ -28,6 +48,40 @@ export function normalizeCustomCardsStore(data) {
       facts: data.overrides && data.overrides.facts && typeof data.overrides.facts === "object" ? data.overrides.facts : {},
     },
   };
+}
+
+export function createEmptyCardsStore() {
+  return emptyStore();
+}
+
+export function isRoomCardsContext() {
+  return activeCustomCardsStore !== null;
+}
+
+export function getRoomCategories() {
+  return [...readStore().categories];
+}
+
+/**
+ * @param {"music"|"movies"|"facts"} category
+ */
+export function addRoomCategory(category) {
+  if (!ROOM_CATEGORY_KEYS.has(category)) {
+    return false;
+  }
+
+  const data = readStore();
+  if (data.categories.includes(category)) {
+    return false;
+  }
+
+  data.categories = [...data.categories, category];
+  writeStore(data);
+  return true;
+}
+
+export function exportActiveCardsStore() {
+  return readStore();
 }
 
 export function setActiveCustomCardsStore(data) {
@@ -55,10 +109,15 @@ function readStore() {
 }
 
 function writeStore(data) {
+  const normalized = normalizeCustomCardsStore(data);
+  if (activeCustomCardsStore !== null) {
+    activeCustomCardsStore = normalized;
+    return;
+  }
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(data));
+  window.localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(normalized));
 }
 
 export function exportLocalCustomCardsStore() {

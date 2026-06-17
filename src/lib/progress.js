@@ -1,5 +1,5 @@
 import { PROGRESS_SESSION_MS } from "../config/progressSession.js";
-import { CATEGORIES, getItems, STORAGE_KEY } from "../data/quizData";
+import { CATEGORIES, getItems, getVisibleCategoryKeys, STORAGE_KEY } from "../data/quizData";
 
 export { PROGRESS_SESSION_MS };
 
@@ -17,7 +17,9 @@ export function getProgressStorageKey(roomId) {
 export function alignProgressToItems(progress) {
   /** @type {Record<string, boolean[]>} */
   const out = { ...progress };
-  for (const key of Object.keys(CATEGORIES)) {
+  const visibleKeys = getVisibleCategoryKeys();
+
+  for (const key of visibleKeys) {
     const target = getItems(key).length;
     const cur = Array.isArray(out[key]) ? out[key] : [];
     if (cur.length < target) {
@@ -26,13 +28,20 @@ export function alignProgressToItems(progress) {
       out[key] = cur.slice(0, target);
     }
   }
+
+  for (const key of Object.keys(CATEGORIES)) {
+    if (!visibleKeys.includes(key)) {
+      delete out[key];
+    }
+  }
+
   return out;
 }
 
 export function createDefaultProgress() {
   /** @type {Record<string, boolean[]>} */
   const result = {};
-  for (const key of Object.keys(CATEGORIES)) {
+  for (const key of getVisibleCategoryKeys()) {
     result[key] = Array(getItems(key).length).fill(false);
   }
   return result;
@@ -42,9 +51,13 @@ function isValidProgressShape(value) {
   if (!value || typeof value !== "object") {
     return false;
   }
-  return Object.keys(CATEGORIES).every(
-    (key) => Array.isArray(value[key]) && value[key].every((item) => typeof item === "boolean"),
-  );
+
+  const visibleKeys = getVisibleCategoryKeys();
+  if (visibleKeys.length === 0) {
+    return Object.keys(value).length === 0 || Object.keys(value).every((key) => Array.isArray(value[key]));
+  }
+
+  return visibleKeys.every((key) => Array.isArray(value[key]) && value[key].every((item) => typeof item === "boolean"));
 }
 
 /**
