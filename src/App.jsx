@@ -781,6 +781,32 @@ function RoomApp({ mediaTimerEnabled, displaySettings, language }) {
   const canEditRoom = roomRole === "owner";
   const ownerExpiryLabel = formatTokenExpiry(room.ownerTokenExpiresAt, language);
 
+  async function persistRoomCards() {
+    const ownerToken = getRoomOwnerToken(roomId);
+    if (!ownerToken) {
+      setCardRevision((value) => value + 1);
+      return;
+    }
+
+    try {
+      const result = await updateRoom(roomId, ownerToken, exportActiveCardsStore());
+      rememberRoomCredentials(roomId, {
+        accessToken: result.accessToken,
+        room: result.room,
+      });
+      setActiveCustomCardsStore(result.room.cards);
+      setRoom(result.room);
+      setError("");
+      setCardRevision((value) => value + 1);
+    } catch (err) {
+      if (err instanceof RoomRequestError && err.code === "TOKEN_EXPIRED") {
+        setError(err.message || t("roomOwnerTokenExpired"));
+      } else {
+        setError(err instanceof Error ? err.message : t("roomUpdateFailed"));
+      }
+    }
+  }
+
   async function handleAddCategory(category) {
     addRoomCategory(category);
     const ownerToken = getRoomOwnerToken(roomId);
@@ -820,6 +846,7 @@ function RoomApp({ mediaTimerEnabled, displaySettings, language }) {
         <div className="room-banner-copy">
           <p>{canEditRoom ? t("roomProgressNote") : t("roomOnlyPreview")}</p>
           {ownerExpiryLabel && canEditRoom ? <p className="room-meta">{t("roomOwnerAccessExpiry", { date: ownerExpiryLabel })}</p> : null}
+          {error ? <p className="room-error">{error}</p> : null}
         </div>
       </section>
       {isCategoryRoute ? (
@@ -830,7 +857,7 @@ function RoomApp({ mediaTimerEnabled, displaySettings, language }) {
           categoryKeys={roomCategories}
           language={language}
           mediaTimerEnabled={mediaTimerEnabled}
-          onCustomCardsChanged={() => setCardRevision((value) => value + 1)}
+          onCustomCardsChanged={persistRoomCards}
           progress={progress}
           quizFlowMode={displaySettings.quizFlowMode}
           quizFlowThreshold={displaySettings.quizFlowThreshold}

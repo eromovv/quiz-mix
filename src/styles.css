@@ -1061,6 +1061,11 @@ span.category-button.category-completed,
   transform: none;
 }
 
+.tile.tile-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .room-category-grid {
   margin-top: 8px;
 }
