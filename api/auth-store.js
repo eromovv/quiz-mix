@@ -215,3 +215,12 @@ export async function addUserRoom(userId, roomId) {
     await writeJsonBlob(getUserRoomsPath(userId), { roomIds });
   }
 }
+
+export async function removeUserRoom(userId, roomId) {
+  if (!userId || typeof userId !== "string" || !roomId || typeof roomId !== "string") {
+    return;
+  }
+
+  const roomIds = (await listUserRoomIds(userId)).filter((id) => id !== roomId);
+  await writeJsonBlob(getUserRoomsPath(userId), { roomIds });
+}

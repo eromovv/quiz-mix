@@ -98,10 +98,43 @@ a {
   white-space: nowrap;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.82);
+  border: 0;
+  background: transparent;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.auth-session-trigger {
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.auth-session-trigger:hover,
+.auth-session-trigger[aria-expanded="true"] {
+  background: rgba(244, 251, 255, 0.95);
+  color: var(--ink);
+}
+
+.account-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.account-menu-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  min-width: max(100%, 220px);
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px rgba(92, 174, 255, 0.14);
+}
+
+.account-menu-logout {
+  width: 100%;
 }
 
 .auth-tabs {
@@ -295,7 +328,7 @@ a {
 }
 
 .mode-switch {
-  display: inline-flex;
+  display: flex;
   flex-shrink: 0;
   width: 100%;
   border-radius: 999px;
@@ -303,6 +336,12 @@ a {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 10px 24px rgba(92, 174, 255, 0.08);
+}
+
+.mode-switch-balanced .mode-switch-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
 }
 
 .mode-switch-btn {
@@ -680,6 +719,47 @@ a {
     rgba(255, 255, 255, 0.92);
 }
 
+.category-card-add {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  width: 100%;
+  border-style: dashed;
+  border-color: rgba(92, 174, 255, 0.42);
+  background:
+    linear-gradient(160deg, rgba(132, 215, 255, 0.16), rgba(255, 255, 255, 0.96)),
+    rgba(255, 255, 255, 0.92);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.category-card-add:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 18px 40px rgba(92, 174, 255, 0.16);
+}
+
+.category-card-add h3 {
+  color: var(--accent-3);
+}
+
+.category-add-mark {
+  justify-self: center;
+  min-width: 110px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px dashed rgba(92, 174, 255, 0.35);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1;
+  text-align: center;
+}
+
+.category-add-action {
+  pointer-events: none;
+}
+
 .category-card.is-locked {
   overflow: hidden;
 }
@@ -970,9 +1050,15 @@ span.category-button.category-completed,
   font-weight: 600;
 }
 
-.tile.tile-add:hover {
+.tile.tile-add:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: var(--accent);
+}
+
+.tile.tile-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
 }
 
 .room-category-grid {
@@ -1222,6 +1308,17 @@ span.category-button.category-completed,
   color: var(--ink);
 }
 
+.control-button.danger {
+  background: linear-gradient(180deg, #ffd8d8, #ffc4c4);
+  color: #7a2020;
+  border: 1px solid rgba(200, 80, 80, 0.35);
+  box-shadow: 0 10px 20px rgba(200, 80, 80, 0.12);
+}
+
+.control-button.danger:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ffcaca, #ffb0b0);
+}
+
 .control-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -1454,6 +1551,19 @@ span.category-button.category-completed,
     rgba(24, 34, 50, 0.96);
 }
 
+:root[data-ui-theme="dark"] .category-card-add {
+  background:
+    linear-gradient(160deg, rgba(40, 100, 160, 0.22), rgba(24, 34, 50, 0.98)),
+    rgba(24, 34, 50, 0.96);
+  border-color: rgba(92, 174, 255, 0.28);
+}
+
+:root[data-ui-theme="dark"] .category-add-mark {
+  background: rgba(18, 28, 44, 0.92);
+  border-color: rgba(92, 174, 255, 0.28);
+  color: var(--accent-2);
+}
+
 :root[data-ui-theme="dark"] span.category-button.category-completed,
 :root[data-ui-theme="dark"] .category-button.category-completed {
   color: #b0e8c0;
@@ -1537,6 +1647,12 @@ span.category-button.category-completed,
   color: var(--ink);
 }
 
+:root[data-ui-theme="dark"] .control-button.danger {
+  background: linear-gradient(180deg, rgba(120, 50, 50, 0.55), rgba(100, 40, 40, 0.72));
+  color: #f0b0b0;
+  border-color: rgba(200, 120, 120, 0.35);
+}
+
 :root[data-ui-theme="dark"] .answer-panel {
   background: rgba(18, 28, 44, 0.92);
   border-color: var(--line);
@@ -1569,12 +1685,27 @@ span.category-button.category-completed,
 :root[data-ui-theme="dark"] .settings-number input,
 :root[data-ui-theme="dark"] .room-select-label select,
 :root[data-ui-theme="dark"] .room-link-row input,
-:root[data-ui-theme="dark"] .auth-session-badge,
 :root[data-ui-theme="dark"] .auth-field input,
 :root[data-ui-theme="dark"] .auth-tab {
   background: rgba(28, 40, 58, 0.9);
   color: var(--ink);
   border-color: var(--line);
+}
+
+:root[data-ui-theme="dark"] .auth-session-badge {
+  background: transparent;
+  color: var(--ink);
+}
+
+:root[data-ui-theme="dark"] .auth-session-trigger:hover,
+:root[data-ui-theme="dark"] .auth-session-trigger[aria-expanded="true"] {
+  background: rgba(36, 54, 78, 0.96);
+}
+
+:root[data-ui-theme="dark"] .account-menu-panel {
+  background: rgba(20, 32, 48, 0.98);
+  border-color: var(--line);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
 }
 
 :root[data-ui-theme="dark"] .form-error {

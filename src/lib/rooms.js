@@ -100,6 +100,18 @@ export async function renewRoomAccessToken(roomId, ownerToken) {
   return payload;
 }
 
+export async function deleteRoom(roomId, ownerToken) {
+  const payload = await readJsonResponse(
+    await fetch(ROOMS_API, {
+      ...defaultFetchOptions,
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: roomId, ownerToken }),
+    }),
+  );
+  return payload;
+}
+
 export function getOwnedRooms() {
   return readTokenMap(ROOM_OWNER_TOKENS_KEY);
 }
@@ -213,6 +225,18 @@ export function rememberRoomCredentials(roomId, { ownerToken, accessToken, room 
   if (room) {
     saveRoomMeta(roomId, room);
   }
+}
+
+export function forgetRoomCredentials(roomId) {
+  if (typeof window === "undefined" || !roomId) {
+    return;
+  }
+
+  clearRoomOwnerToken(roomId);
+  clearRoomAccessToken(roomId);
+  const meta = readTokenMap(ROOM_META_KEY);
+  delete meta[roomId];
+  writeTokenMap(ROOM_META_KEY, meta);
 }
 
 export function formatTokenExpiry(isoDate, language) {

@@ -38,8 +38,10 @@ import { alignProgressToItems, countCompleted, getProgressStorageKey, loadProgre
 import {
   captureAccessTokenFromUrl,
   createRoom,
+  deleteRoom,
   fetchRoom,
   formatTokenExpiry,
+  forgetRoomCredentials,
   getOwnedRooms,
   getRoomAccessToken,
   getRoomMeta,
@@ -68,40 +70,43 @@ const QUIZ_FLOW_MODE = {
 };
 const DEFAULT_QUIZ_FLOW_THRESHOLD = 1;
 
-const DEFAULT_MEDIA_TIMERS = {
-  music: true,
-  movies: false,
-};
+const DEFAULT_MEDIA_TIMER_ENABLED = true;
 
 const DEFAULT_DISPLAY_SETTINGS = {
-  hideRoundSummary: false,
+  hideRoundSummary: true,
   quizFlowMode: QUIZ_FLOW_MODE.chaotic,
   quizFlowThreshold: DEFAULT_QUIZ_FLOW_THRESHOLD,
 };
 
 function loadMediaTimerSettings() {
   if (typeof window === "undefined") {
-    return DEFAULT_MEDIA_TIMERS;
+    return DEFAULT_MEDIA_TIMER_ENABLED;
   }
 
   try {
     const parsed = JSON.parse(window.localStorage.getItem(MEDIA_TIMER_SETTINGS_KEY) || "{}");
-    return {
-      music: typeof parsed.music === "boolean" ? parsed.music : DEFAULT_MEDIA_TIMERS.music,
-      movies: typeof parsed.movies === "boolean" ? parsed.movies : DEFAULT_MEDIA_TIMERS.movies,
-    };
+    if (typeof parsed.enabled === "boolean") {
+      return parsed.enabled;
+    }
+    if (typeof parsed.music === "boolean") {
+      return parsed.music;
+    }
+    if (typeof parsed.movies === "boolean") {
+      return parsed.movies;
+    }
   } catch {
-    return DEFAULT_MEDIA_TIMERS;
+    /* ignore */
   }
+  return DEFAULT_MEDIA_TIMER_ENABLED;
 }
 
-function saveMediaTimerSettings(settings) {
+function saveMediaTimerSettings(enabled) {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    window.localStorage.setItem(MEDIA_TIMER_SETTINGS_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(MEDIA_TIMER_SETTINGS_KEY, JSON.stringify({ enabled }));
   } catch {
     /* ignore */
   }
@@ -165,13 +170,14 @@ export default function App() {
   const [uiTheme, setUiTheme] = useState(() => loadTheme());
   const [language, setLanguage] = useState(() => loadLanguage());
   const [appMode, setAppMode] = useState(() => loadAppMode());
-  const [mediaTimers, setMediaTimers] = useState(() => loadMediaTimerSettings());
+  const [mediaTimerEnabled, setMediaTimerEnabled] = useState(() => loadMediaTimerSettings());
   const [displaySettings, setDisplaySettings] = useState(() => loadDisplaySettings());
   const [cardRevision, setCardRevision] = useState(0);
   const [accountUser, setAccountUser] = useState(null);
   const [accountReady, setAccountReady] = useState(false);
   const [roomSession, setRoomSession] = useState(() => resolveInitialUserSession());
   const [authOpen, setAuthOpen] = useState(false);
+  const [roomsRevision, setRoomsRevision] = useState(0);
   const isRoomPath = location.pathname.startsWith("/room/");
 
   useEffect(() => subscribeUserSession(setRoomSession), []);
@@ -232,8 +238,8 @@ export default function App() {
   }, [appMode]);
 
   useEffect(() => {
-    saveMediaTimerSettings(mediaTimers);
-  }, [mediaTimers]);
+    saveMediaTimerSettings(mediaTimerEnabled);
+  }, [mediaTimerEnabled]);
 
   useEffect(() => {
     saveDisplaySettings(displaySettings);
@@ -254,8 +260,8 @@ export default function App() {
         }}
         onSetLanguage={handleSetLanguage}
         onSetAppMode={setAppMode}
-        mediaTimers={mediaTimers}
-        onSetMediaTimers={setMediaTimers}
+        mediaTimerEnabled={mediaTimerEnabled}
+        onSetMediaTimerEnabled={setMediaTimerEnabled}
         onSetDisplaySettings={setDisplaySettings}
         onToggleTheme={() => setUiTheme((t) => (t === "light" ? "dark" : "light"))}
         uiTheme={uiTheme}
@@ -275,7 +281,7 @@ export default function App() {
           accountUser={accountUser}
           cardRevision={cardRevision}
           language={language}
-          onLogin={() => setAuthOpen(true)}
+          onRoomsChanged={() => setRoomsRevision((value) => value + 1)}
         />
       ) : null}
       <main>
@@ -289,7 +295,9 @@ export default function App() {
                 cardRevision={cardRevision}
                 displaySettings={displaySettings}
                 language={language}
+                onRoomsChanged={() => setRoomsRevision((value) => value + 1)}
                 progress={progress}
+                roomsRevision={roomsRevision}
               />
             }
           />
@@ -301,7 +309,7 @@ export default function App() {
                 cardRevision={cardRevision}
                 category="music"
                 language={language}
-                mediaTimers={mediaTimers}
+                mediaTimerEnabled={mediaTimerEnabled}
                 onCustomCardsChanged={() => setCardRevision((n) => n + 1)}
                 progress={progress}
                 quizFlowMode={displaySettings.quizFlowMode}
@@ -318,7 +326,7 @@ export default function App() {
                 cardRevision={cardRevision}
                 category="movies"
                 language={language}
-                mediaTimers={mediaTimers}
+                mediaTimerEnabled={mediaTimerEnabled}
                 onCustomCardsChanged={() => setCardRevision((n) => n + 1)}
                 progress={progress}
                 quizFlowMode={displaySettings.quizFlowMode}
@@ -335,7 +343,7 @@ export default function App() {
                 cardRevision={cardRevision}
                 category="facts"
                 language={language}
-                mediaTimers={mediaTimers}
+                mediaTimerEnabled={mediaTimerEnabled}
                 onCustomCardsChanged={() => setCardRevision((n) => n + 1)}
                 progress={progress}
                 quizFlowMode={displaySettings.quizFlowMode}
@@ -344,7 +352,7 @@ export default function App() {
               />
             }
           />
-          <Route path="/room/:roomId/*" element={<RoomApp mediaTimers={mediaTimers} displaySettings={displaySettings} language={language} />} />
+          <Route path="/room/:roomId/*" element={<RoomApp mediaTimerEnabled={mediaTimerEnabled} displaySettings={displaySettings} language={language} />} />
         </Routes>
       </main>
     </div>
@@ -355,7 +363,7 @@ function makeRoomUrl(roomId) {
   return makeRoomShareUrl(roomId);
 }
 
-function MyRoomsPanel({ accountUser, cardRevision, language, onLogin }) {
+function MyRoomsPanel({ accountUser, cardRevision, language, onRoomsChanged }) {
   const navigate = useNavigate();
   const t = useMemo(() => createTranslator(language), [language]);
   const [rooms, setRooms] = useState([]);
@@ -426,6 +434,7 @@ function MyRoomsPanel({ accountUser, cardRevision, language, onLogin }) {
     } else {
       setCurrentRoomId(nextRooms[0]?.id || "");
     }
+    onRoomsChanged?.();
     return nextRooms;
   }
 
@@ -498,6 +507,33 @@ function MyRoomsPanel({ accountUser, cardRevision, language, onLogin }) {
     }
   }
 
+  async function handleDeleteRoom() {
+    if (!currentRoomId) {
+      return;
+    }
+
+    if (!window.confirm(t("roomDeleteConfirm"))) {
+      return;
+    }
+
+    setError("");
+    setStatus("");
+    setIsSaving(true);
+    try {
+      await deleteRoom(currentRoomId, getRoomOwnerToken(currentRoomId));
+      forgetRoomCredentials(currentRoomId);
+      if (window.localStorage.getItem(LAST_ROOM_ID_KEY) === currentRoomId) {
+        window.localStorage.removeItem(LAST_ROOM_ID_KEY);
+      }
+      await refreshRooms();
+      setStatus(t("roomDeleted"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("roomDeleteFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function handleClaimRoom(roomId) {
     const ownerToken = getRoomOwnerToken(roomId);
     if (!ownerToken) {
@@ -537,18 +573,7 @@ function MyRoomsPanel({ accountUser, cardRevision, language, onLogin }) {
   }
 
   if (!accountUser) {
-    return (
-      <section className="room-panel">
-        <div className="room-panel-body">
-          <div className="room-panel-body-inner">
-            <p className="room-link-hint">{t("myRoomsLoginRequired")}</p>
-            <button className="control-button primary" onClick={onLogin} type="button">
-              {t("accountLoginButton")}
-            </button>
-          </div>
-        </div>
-      </section>
-    );
+    return null;
   }
 
   return (
@@ -604,6 +629,9 @@ function MyRoomsPanel({ accountUser, cardRevision, language, onLogin }) {
                   <button className="control-button secondary" disabled={isSaving} onClick={handleRenewAccessLink} tabIndex={isOpen ? 0 : -1} type="button">
                     {t("roomRenewAccessButton")}
                   </button>
+                  <button className="control-button danger" disabled={isSaving} onClick={handleDeleteRoom} tabIndex={isOpen ? 0 : -1} type="button">
+                    {t("roomDeleteButton")}
+                  </button>
                 </>
               ) : null}
               <button className="control-button primary" disabled={isSaving} onClick={handleCreateRoom} tabIndex={isOpen ? 0 : -1} type="button">
@@ -650,7 +678,7 @@ function MyRoomsPanel({ accountUser, cardRevision, language, onLogin }) {
   );
 }
 
-function RoomApp({ mediaTimers, displaySettings, language }) {
+function RoomApp({ mediaTimerEnabled, displaySettings, language }) {
   const { roomId } = useParams();
   const location = useLocation();
   const t = useMemo(() => createTranslator(language), [language]);
@@ -801,7 +829,7 @@ function RoomApp({ mediaTimers, displaySettings, language }) {
           category={activeCategory}
           categoryKeys={roomCategories}
           language={language}
-          mediaTimers={mediaTimers}
+          mediaTimerEnabled={mediaTimerEnabled}
           onCustomCardsChanged={() => setCardRevision((value) => value + 1)}
           progress={progress}
           quizFlowMode={displaySettings.quizFlowMode}
@@ -830,13 +858,13 @@ function AppHeader({
   displaySettings,
   isRoomMode,
   language,
-  mediaTimers,
+  mediaTimerEnabled,
   onLogin,
   onLogoutAccount,
   onSetAppMode,
   onSetDisplaySettings,
   onSetLanguage,
-  onSetMediaTimers,
+  onSetMediaTimerEnabled,
   onToggleTheme,
   uiTheme,
 }) {
@@ -844,7 +872,9 @@ function AppHeader({
   const navigate = useNavigate();
   const t = useMemo(() => createTranslator(language), [language]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const settingsMenuRef = useRef(null);
+  const accountMenuRef = useRef(null);
   const roomRootMatch = location.pathname.match(/^\/room\/([^/]+)\/?$/);
   const roomSectionMatch = location.pathname.match(/^\/room\/([^/]+)\//);
   const isHome = location.pathname === "/" || Boolean(roomRootMatch);
@@ -869,11 +899,24 @@ function AppHeader({
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
   }, [settingsOpen]);
 
-  function updateMediaTimer(key, checked) {
-    onSetMediaTimers((current) => ({
-      ...current,
-      [key]: checked,
-    }));
+  useEffect(() => {
+    if (!accountMenuOpen) {
+      return undefined;
+    }
+
+    function handleOutsidePointerDown(event) {
+      if (accountMenuRef.current?.contains(event.target)) {
+        return;
+      }
+      setAccountMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [accountMenuOpen]);
+
+  function updateMediaTimer(checked) {
+    onSetMediaTimerEnabled(checked);
   }
 
   function updateDisplaySetting(key, checked) {
@@ -957,7 +1000,7 @@ function AppHeader({
                   <>
                     <div className="settings-section">
                       <p className="settings-title">{t("quizFlowMode")}</p>
-                      <div className="mode-switch" role="group" aria-label={t("quizFlowMode")}>
+                      <div className="mode-switch mode-switch-balanced" role="group" aria-label={t("quizFlowMode")}>
                         <button
                           className={`mode-switch-btn ${displaySettings.quizFlowMode !== QUIZ_FLOW_MODE.sequential ? "is-active" : ""}`}
                           type="button"
@@ -990,14 +1033,9 @@ function AppHeader({
                       ) : null}
                     </div>
                     <div className="settings-section">
-                      <p className="settings-title">{t("mediaTimers")}</p>
                       <label className="settings-check">
-                        <input checked={mediaTimers.music} onChange={(event) => updateMediaTimer("music", event.target.checked)} type="checkbox" />
-                        <span>{t("timerMusic")}</span>
-                      </label>
-                      <label className="settings-check">
-                        <input checked={mediaTimers.movies} onChange={(event) => updateMediaTimer("movies", event.target.checked)} type="checkbox" />
-                        <span>{t("timerVideo")}</span>
+                        <input checked={mediaTimerEnabled} onChange={(event) => updateMediaTimer(event.target.checked)} type="checkbox" />
+                        <span>{t("mediaTimers")}</span>
                       </label>
                     </div>
                     <div className="settings-section">
@@ -1028,14 +1066,33 @@ function AppHeader({
       </div>
       <div className="topbar-right topbar-controls">
         {accountUser ? (
-          <>
-            <span className="auth-session-badge" title={accountLabel}>
+          <div className="account-menu" ref={accountMenuRef}>
+            <button
+              aria-expanded={accountMenuOpen}
+              aria-haspopup="menu"
+              className="auth-session-badge auth-session-trigger"
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              title={accountLabel}
+              type="button"
+            >
               {accountLabel}
-            </span>
-            <button className="control-button secondary auth-button" type="button" onClick={onLogoutAccount}>
-              {t("accountLogoutButton")}
             </button>
-          </>
+            {accountMenuOpen ? (
+              <div className="account-menu-panel" role="menu">
+                <button
+                  className="control-button secondary auth-button account-menu-logout"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    onLogoutAccount();
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  {t("accountLogoutButton")}
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <button className="control-button primary auth-button" type="button" onClick={onLogin}>
             {t("accountLoginButton")}
@@ -1043,6 +1100,23 @@ function AppHeader({
         )}
       </div>
     </header>
+  );
+}
+
+function CategoryAddCard({ language, onAdd }) {
+  const t = useMemo(() => createTranslator(language), [language]);
+
+  return (
+    <button className="category-card category-card-add" onClick={onAdd} title={t("addQuestCategory")} type="button">
+      <div>
+        <h3>{t("addQuestCategory")}</h3>
+        <p className="progress-copy">{t("roomAddQuizHint")}</p>
+      </div>
+      <div className="category-add-mark" aria-hidden="true">
+        +
+      </div>
+      <span className="category-button category-add-action">{t("add")}</span>
+    </button>
   );
 }
 
@@ -1069,8 +1143,9 @@ function RoomHomePage({ canEdit, cardRevision, displaySettings, language, onAddC
       {roomCategories.length === 0 && !canEdit ? (
         <p className="empty-copy">{t("roomEmptyGuest")}</p>
       ) : (
-        <div className="tile-grid room-category-grid">
+        <div className="category-list">
           {roomCategories.map((key) => {
+            const value = CATEGORIES[key];
             const categoryMeta = getCategoryMeta(language, key);
             const cap = getItemCount(key);
             const done = cap > 0 && countCompleted(progress, key) === cap;
@@ -1082,36 +1157,32 @@ function RoomHomePage({ canEdit, cardRevision, displaySettings, language, onAddC
               roomCategories,
             );
             return (
-              <NavLink
-                aria-disabled={isLocked ? "true" : undefined}
-                className={`tile room-category-tile ${isLocked ? "is-locked" : ""} ${done ? "completed" : ""}`}
-                data-theme={key}
-                key={key}
-                onClick={(event) => {
-                  if (isLocked) {
-                    event.preventDefault();
-                  }
-                }}
-                to={`${routePrefix}${CATEGORIES[key].route}`}
-              >
-                <span className="room-category-tile-title">{categoryMeta.title}</span>
-                {cap > 0 ? (
-                  <span className="room-category-tile-progress">
-                    {countCompleted(progress, key)}/{cap}
+              <article className={`category-card ${isLocked ? "is-locked" : ""}`} data-theme={key} key={key}>
+                <div>
+                  <h3>{categoryMeta.title}</h3>
+                  <p className="progress-copy">{categoryMeta.description}</p>
+                </div>
+                <div className="progress-pill">
+                  {countCompleted(progress, key)}/{cap}
+                </div>
+                {isLocked ? (
+                  <span className="category-locked-message" role="status">
+                    {t("quizCategoryLockedAction", { threshold: displaySettings.quizFlowThreshold })}
                   </span>
-                ) : null}
-              </NavLink>
+                ) : done ? (
+                  <span className="category-button category-link category-completed" role="status">
+                    {t("completed")}
+                  </span>
+                ) : (
+                  <NavLink className="category-button category-link" to={`${routePrefix}${value.route}`}>
+                    {t("open")}
+                  </NavLink>
+                )}
+              </article>
             );
           })}
           {canEdit && availableCategories.length > 0 ? (
-            <button
-              className="tile tile-add"
-              onClick={() => setPickerOpen(true)}
-              title={t("addQuestCategory")}
-              type="button"
-            >
-              +
-            </button>
+            <CategoryAddCard language={language} onAdd={() => setPickerOpen(true)} />
           ) : null}
         </div>
       )}
@@ -1137,68 +1208,192 @@ function RoomHomePage({ canEdit, cardRevision, displaySettings, language, onAddC
   );
 }
 
-function HomePage({ progress, cardRevision, displaySettings, language, routePrefix = "", accountUser, accountReady }) {
+function HomePage({ progress, cardRevision, displaySettings, language, routePrefix = "", accountUser, accountReady, roomsRevision, onRoomsChanged }) {
   const t = useMemo(() => createTranslator(language), [language]);
-  const rounds = getRoundCount();
-  const totalQuestions = getTotalQuestionCount();
+  const [rooms, setRooms] = useState([]);
+  const [roomsReady, setRoomsReady] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!accountUser) {
+      setRooms([]);
+      setRoomsReady(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setRoomsReady(false);
+    fetchMyRooms()
+      .then((nextRooms) => {
+        if (!cancelled) {
+          setRooms(nextRooms);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRooms([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRoomsReady(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountUser, roomsRevision]);
+
+  const currentRoom = useMemo(() => {
+    if (rooms.length === 0) {
+      return null;
+    }
+
+    const stored = typeof window !== "undefined" ? window.localStorage.getItem(LAST_ROOM_ID_KEY) || "" : "";
+    if (stored && rooms.some((room) => room.id === stored)) {
+      return rooms.find((room) => room.id === stored) || rooms[0];
+    }
+
+    return rooms[0];
+  }, [rooms]);
+
+  const roomCategoryKeys = currentRoom?.cards?.categories || [];
+  const availableCategories = CATEGORY_KEYS.filter((key) => !roomCategoryKeys.includes(key));
+
+  useEffect(() => {
+    if (!currentRoom) {
+      return undefined;
+    }
+
+    setActiveCustomCardsStore(currentRoom.cards);
+    return () => setActiveCustomCardsStore(null);
+  }, [currentRoom, cardRevision, roomsRevision]);
+
+  const rounds = roomCategoryKeys.length;
+  const totalQuestions = roomCategoryKeys.reduce((sum, key) => sum + getItemCount(key), 0);
   const heroLine = t("roundSummary", { rounds, totalQuestions });
-  const showDashboard = accountReady && accountUser;
+  const showDashboard = accountReady && roomsReady && accountUser && rooms.length > 0;
+
+  async function handleAddCategory(category) {
+    if (!currentRoom) {
+      return;
+    }
+
+    setPickerOpen(false);
+    setActiveCustomCardsStore(currentRoom.cards);
+    addRoomCategory(category);
+
+    const ownerToken = getRoomOwnerToken(currentRoom.id);
+    if (!ownerToken) {
+      return;
+    }
+
+    try {
+      const result = await updateRoom(currentRoom.id, ownerToken, exportActiveCardsStore());
+      rememberRoomCredentials(currentRoom.id, {
+        ownerToken,
+        accessToken: result.accessToken,
+        room: result.room,
+      });
+      onRoomsChanged?.();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!accountReady || (accountUser && !roomsReady)) {
+    return (
+      <section className="hero" data-card-revision={cardRevision}>
+        <p className="empty-copy">{t("loading")}</p>
+      </section>
+    );
+  }
+
+  if (!accountUser) {
+    return (
+      <section className="hero" data-card-revision={cardRevision}>
+        <PlatformIntro language={language} />
+      </section>
+    );
+  }
+
+  if (!showDashboard) {
+    return null;
+  }
+
+  if (roomCategoryKeys.length === 0) {
+    return (
+      <section className="hero" data-card-revision={cardRevision}>
+        <div className="category-list">
+          <CategoryAddCard language={language} onAdd={() => setPickerOpen(true)} />
+        </div>
+        {pickerOpen ? (
+          <AddCategoryModal
+            availableCategories={availableCategories}
+            language={language}
+            onClose={() => setPickerOpen(false)}
+            onSelect={handleAddCategory}
+          />
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section className="hero" data-card-revision={cardRevision}>
-      {!accountReady ? (
-        <p className="empty-copy">{t("loading")}</p>
-      ) : showDashboard ? (
-        <>
-          {displaySettings.hideRoundSummary ? null : (
-            <div className="hero-copy">
-              <h2>{heroLine}</h2>
-            </div>
-          )}
-          <div className="category-list">
-            {Object.entries(CATEGORIES).map(([key, value]) => {
-              const categoryMeta = getCategoryMeta(language, key);
-              const cap = getItemCount(key);
-              const done = cap > 0 && countCompleted(progress, key) === cap;
-              const isLocked = !isCategoryUnlocked(progress, key, displaySettings.quizFlowMode, displaySettings.quizFlowThreshold);
-              return (
-                <article className={`category-card ${isLocked ? "is-locked" : ""}`} data-theme={key} key={key}>
-                  <div>
-                    <h3>{categoryMeta.title}</h3>
-                    <p className="progress-copy">{categoryMeta.description}</p>
-                  </div>
-                  <div className="progress-pill">
-                    {countCompleted(progress, key)}/{cap}
-                  </div>
-                  {isLocked ? (
-                    <span className="category-locked-message" role="status">
-                      {t("quizCategoryLockedAction", { threshold: displaySettings.quizFlowThreshold })}
-                    </span>
-                  ) : done ? (
-                    <span className="category-button category-link category-completed" role="status">
-                      {t("completed")}
-                    </span>
-                  ) : (
-                    <NavLink className="category-button category-link" to={`${routePrefix}${value.route}`}>
-                      {t("open")}
-                    </NavLink>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-          <div className="stats-row">
-            {Object.keys(CATEGORIES).map((key) => (
-              <div className="stat-box" key={key}>
-                <span className="stat-value">{countCompleted(progress, key)}</span>
-                <p className="progress-copy">{t("cardsCompleted", { title: getCategoryMeta(language, key).title })}</p>
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <PlatformIntro language={language} />
+      {displaySettings.hideRoundSummary ? null : (
+        <div className="hero-copy">
+          <h2>{heroLine}</h2>
+        </div>
       )}
+      <div className="category-list">
+        {roomCategoryKeys.map((key) => {
+          const value = CATEGORIES[key];
+          const categoryMeta = getCategoryMeta(language, key);
+          const cap = getItemCount(key);
+          const done = cap > 0 && countCompleted(progress, key) === cap;
+          const isLocked = !isCategoryUnlocked(
+            progress,
+            key,
+            displaySettings.quizFlowMode,
+            displaySettings.quizFlowThreshold,
+            roomCategoryKeys,
+          );
+          return (
+            <article className={`category-card ${isLocked ? "is-locked" : ""}`} data-theme={key} key={key}>
+              <div>
+                <h3>{categoryMeta.title}</h3>
+                <p className="progress-copy">{categoryMeta.description}</p>
+              </div>
+              <div className="progress-pill">
+                {countCompleted(progress, key)}/{cap}
+              </div>
+              {isLocked ? (
+                <span className="category-locked-message" role="status">
+                  {t("quizCategoryLockedAction", { threshold: displaySettings.quizFlowThreshold })}
+                </span>
+              ) : done ? (
+                <span className="category-button category-link category-completed" role="status">
+                  {t("completed")}
+                </span>
+              ) : (
+                <NavLink className="category-button category-link" to={`${routePrefix}${value.route}`}>
+                  {t("open")}
+                </NavLink>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <div className="stats-row">
+        {roomCategoryKeys.map((key) => (
+          <div className="stat-box" key={key}>
+            <span className="stat-value">{countCompleted(progress, key)}</span>
+            <p className="progress-copy">{t("cardsCompleted", { title: getCategoryMeta(language, key).title })}</p>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1209,7 +1404,7 @@ function QuizPage({
   cardRevision,
   categoryKeys = CATEGORY_KEYS,
   language,
-  mediaTimers,
+  mediaTimerEnabled,
   onCustomCardsChanged,
   progress,
   quizFlowMode,
@@ -1230,6 +1425,7 @@ function QuizPage({
   const [editSource, setEditSource] = useState(null);
   const [editInitialRow, setEditInitialRow] = useState(null);
   const isDevMode = appMode === APP_MODE.dev;
+  const showInlineAddCard = isDevMode && Boolean(roomId);
 
   function handleComplete(index) {
     setProgress((current) => {
@@ -1298,7 +1494,7 @@ function QuizPage({
             <div className="progress-pill">
               {completedCount}/{items.length}
             </div>
-            {isDevMode ? (
+            {isDevMode && !showInlineAddCard ? (
               <button
                 className="add-card-btn"
                 disabled={activeIndex !== null}
@@ -1330,6 +1526,18 @@ function QuizPage({
               </button>
             );
           })}
+          {showInlineAddCard ? (
+            <button
+              aria-label={t("addCard")}
+              className="tile tile-add"
+              disabled={activeIndex !== null || isLockedCategory}
+              onClick={openAddCard}
+              title={t("addCard")}
+              type="button"
+            >
+              +
+            </button>
+          ) : null}
         </div>
         {completedCount === items.length ? <p className="empty-copy">{t("allRoundQuestionsCompleted")}</p> : null}
       </section>
@@ -1342,7 +1550,7 @@ function QuizPage({
         item={activeIndex === null ? null : items[activeIndex]}
         itemIndex={activeIndex}
         language={language}
-        mediaTimers={mediaTimers}
+        mediaTimerEnabled={mediaTimerEnabled}
         onDeleteCustomCard={handleDeleteCustomFromModal}
         onEditCard={handleEditFromModal}
         roundItemCount={items.length}
@@ -1414,7 +1622,7 @@ function QuestionModal({
   isDevMode,
   canEditCard,
   canDeleteCard,
-  mediaTimers,
+  mediaTimerEnabled,
   onEditCard,
   onDeleteCustomCard,
 }) {
@@ -1430,7 +1638,7 @@ function QuestionModal({
   const musicStartedAtRef = useRef(null);
   const musicRemainingRef = useRef(MUSIC_LISTEN_DURATION_SEC);
   const musicTimerStartedWithRef = useRef(MUSIC_LISTEN_DURATION_SEC);
-  const isMediaTimerEnabled = category === "music" ? mediaTimers.music : category === "movies" ? mediaTimers.movies : false;
+  const isMediaTimerEnabled = (category === "music" || category === "movies") && mediaTimerEnabled;
 
   useEffect(() => {
     setAnswerVisible(false);

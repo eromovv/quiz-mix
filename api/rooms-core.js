@@ -1,8 +1,8 @@
-import { get, put } from "@vercel/blob";
+import { get, put, del } from "@vercel/blob";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { addUserRoom, listUserRoomIds } from "./auth-store.js";
+import { addUserRoom, listUserRoomIds, removeUserRoom } from "./auth-store.js";
 import {
   ACCESS_TOKEN_BYTES,
   assertNotExpired,
@@ -64,6 +64,21 @@ async function writeRoomPayload(room) {
     contentType: "application/json; charset=utf-8",
     allowOverwrite: true,
   });
+}
+
+async function deleteRoomPayload(roomId) {
+  if (shouldUseLocalRoomStore()) {
+    try {
+      await unlink(getLocalRoomFile(roomId));
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    return;
+  }
+
+  await del(getRoomPath(roomId));
 }
 
 const ROOM_CATEGORY_KEYS = new Set(["music", "movies", "facts"]);
@@ -321,6 +336,19 @@ export async function renewRoomAccessToken(roomId, ownerToken, userId) {
   };
 }
 
+export async function deleteRoom(roomId, ownerToken, userId) {
+  validateRoomId(roomId);
+  const existing = await readRoom(roomId);
+  assertOwnerAccess(existing, ownerToken, userId);
+
+  await deleteRoomPayload(roomId);
+  if (userId) {
+    await removeUserRoom(userId, roomId);
+  }
+
+  return { ok: true, id: roomId };
+}
+
 export async function claimRoomForUser(roomId, ownerToken, userId) {
   validateRoomId(roomId);
   if (!userId || typeof userId !== "string") {
@@ -416,9 +444,14 @@ export async function handleRoomsRequest(method, query, body, request) {
     return { statusCode: 200, body: result };
   }
 
+  if (method === "DELETE") {
+    const result = await deleteRoom(body?.id, body?.ownerToken, userId);
+    return { statusCode: 200, body: result };
+  }
+
   return {
     statusCode: 405,
-    headers: { Allow: "GET, POST, PUT, PATCH" },
+    headers: { Allow: "GET, POST, PUT, PATCH, DELETE" },
     body: { error: "Method not allowed" },
   };
 }
