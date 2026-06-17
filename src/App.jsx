@@ -10,6 +10,7 @@ import {
   exportActiveCardsStore,
   exportLocalCustomCardsStore,
   getRoomCategories,
+  isRoomCardsContext,
   removeCustomCard,
   setActiveCustomCardsStore,
 } from "./data/customItems";
@@ -468,7 +469,11 @@ function MyRoomsPanel({ accountUser, cardRevision, language, onRoomsChanged }) {
     setStatus("");
     setIsSaving(true);
     try {
-      const result = await updateRoom(currentRoomId, getRoomOwnerToken(currentRoomId), exportLocalCustomCardsStore());
+      const result = await updateRoom(
+        currentRoomId,
+        getRoomOwnerToken(currentRoomId),
+        isRoomCardsContext() ? exportActiveCardsStore() : exportLocalCustomCardsStore(),
+      );
       rememberRoom(currentRoomId, {
         ownerToken: result.ownerToken || getRoomOwnerToken(currentRoomId),
         accessToken: result.accessToken,
@@ -783,14 +788,11 @@ function RoomApp({ mediaTimerEnabled, displaySettings, language }) {
 
   async function persistRoomCards() {
     const ownerToken = getRoomOwnerToken(roomId);
-    if (!ownerToken) {
-      setCardRevision((value) => value + 1);
-      return;
-    }
 
     try {
       const result = await updateRoom(roomId, ownerToken, exportActiveCardsStore());
       rememberRoomCredentials(roomId, {
+        ownerToken: result.ownerToken || ownerToken,
         accessToken: result.accessToken,
         room: result.room,
       });
@@ -810,24 +812,26 @@ function RoomApp({ mediaTimerEnabled, displaySettings, language }) {
   async function handleAddCategory(category) {
     addRoomCategory(category);
     const ownerToken = getRoomOwnerToken(roomId);
-    if (ownerToken) {
-      try {
-        const result = await updateRoom(roomId, ownerToken, exportActiveCardsStore());
-        rememberRoomCredentials(roomId, {
-          accessToken: result.accessToken,
-          room: result.room,
-        });
-        setActiveCustomCardsStore(result.room.cards);
-        setRoom(result.room);
-      } catch (err) {
-        if (err instanceof RoomRequestError && err.code === "TOKEN_EXPIRED") {
-          setError(err.message || t("roomOwnerTokenExpired"));
-        } else {
-          setError(err instanceof Error ? err.message : t("roomUpdateFailed"));
-        }
-        return;
+
+    try {
+      const result = await updateRoom(roomId, ownerToken, exportActiveCardsStore());
+      rememberRoomCredentials(roomId, {
+        ownerToken: result.ownerToken || ownerToken,
+        accessToken: result.accessToken,
+        room: result.room,
+      });
+      setActiveCustomCardsStore(result.room.cards);
+      setRoom(result.room);
+      setError("");
+    } catch (err) {
+      if (err instanceof RoomRequestError && err.code === "TOKEN_EXPIRED") {
+        setError(err.message || t("roomOwnerTokenExpired"));
+      } else {
+        setError(err instanceof Error ? err.message : t("roomUpdateFailed"));
       }
+      return;
     }
+
     setProgress((current) => alignProgressToItems(current));
     setCardRevision((value) => value + 1);
   }
@@ -1240,6 +1244,7 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
   const [rooms, setRooms] = useState([]);
   const [roomsReady, setRoomsReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!accountUser) {
@@ -1287,6 +1292,7 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
 
   const roomCategoryKeys = currentRoom?.cards?.categories || [];
   const availableCategories = CATEGORY_KEYS.filter((key) => !roomCategoryKeys.includes(key));
+  const roomRoutePrefix = currentRoom ? `/room/${currentRoom.id}` : routePrefix;
 
   useEffect(() => {
     if (!currentRoom) {
@@ -1308,24 +1314,23 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
     }
 
     setPickerOpen(false);
+    setError("");
     setActiveCustomCardsStore(currentRoom.cards);
     addRoomCategory(category);
 
     const ownerToken = getRoomOwnerToken(currentRoom.id);
-    if (!ownerToken) {
-      return;
-    }
 
     try {
       const result = await updateRoom(currentRoom.id, ownerToken, exportActiveCardsStore());
       rememberRoomCredentials(currentRoom.id, {
-        ownerToken,
+        ownerToken: result.ownerToken || ownerToken,
         accessToken: result.accessToken,
         room: result.room,
       });
+      setActiveCustomCardsStore(result.room.cards);
       onRoomsChanged?.();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("roomUpdateFailed"));
     }
   }
 
@@ -1374,6 +1379,7 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
           <h2>{heroLine}</h2>
         </div>
       )}
+      {error ? <p className="room-error">{error}</p> : null}
       <div className="category-list">
         {roomCategoryKeys.map((key) => {
           const value = CATEGORIES[key];
@@ -1405,13 +1411,16 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
                   {t("completed")}
                 </span>
               ) : (
-                <NavLink className="category-button category-link" to={`${routePrefix}${value.route}`}>
+                <NavLink className="category-button category-link" to={`${roomRoutePrefix}${value.route}`}>
                   {t("open")}
                 </NavLink>
               )}
             </article>
           );
         })}
+        {availableCategories.length > 0 ? (
+          <CategoryAddCard language={language} onAdd={() => setPickerOpen(true)} />
+        ) : null}
       </div>
       <div className="stats-row">
         {roomCategoryKeys.map((key) => (
@@ -1421,6 +1430,14 @@ function HomePage({ progress, cardRevision, displaySettings, language, routePref
           </div>
         ))}
       </div>
+      {pickerOpen ? (
+        <AddCategoryModal
+          availableCategories={availableCategories}
+          language={language}
+          onClose={() => setPickerOpen(false)}
+          onSelect={handleAddCategory}
+        />
+      ) : null}
     </section>
   );
 }
